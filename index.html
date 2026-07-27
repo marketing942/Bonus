@@ -56,6 +56,10 @@ j=d.createElement(s),dl=l!='dataLayer'?'?l='+l:'';j.async=true;j.src=
         <span class="error" data-error-for="telefone"></span>
       </div>
 
+      <!-- ⚠ NÃO RENOMEAR este id sem antes desligar a regra correspondente no
+           painel da PixelX / GTM. Ele NÃO é um id decorativo: é o identificador
+           que a regra de conversão usa para disparar o Lead nas tags Meta do
+           container. Removê-lo zera o Lead (já testado na landing PMPE). -->
       <button type="submit" id="IPEyzyfmJhKQEYIXAlZH" class="cta">QUERO RECEBER O MATERIAL</button>
       <p class="note">Cadastro gratuito. Seus dados estão seguros.</p>
       <p class="success" id="form-success" role="status" hidden>
@@ -110,7 +114,7 @@ j=d.createElement(s),dl=l!='dataLayer'?'?l='+l:'';j.async=true;j.src=
   <script src="script.js"></script>
 
 <!-- Google Tag Manager (noscript) -->
-<noscript><iframe src="https://sgtm.cppem.com.br/ns.html?id= GTM-PJ379FLQ"
+<noscript><iframe src="https://sgtm.cppem.com.br/ns.html?id=GTM-PJ379FLQ"
 height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
 <!-- End Google Tag Manager (noscript) -->
   
