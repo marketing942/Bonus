@@ -45,6 +45,50 @@ function validate() {
   return ok;
 }
 
+/* =========================================================
+   Emissor de Lead — via dataLayer (ver TRACKING.md §8.7)
+
+   As tags Meta de conversão são TAGS DO GTM, e tag do GTM só dispara por
+   GATILHO do GTM. `pixel_x_app.send_event()` NÃO as aciona — ele fala com o
+   backend da PixelX. O único caminho que o container escuta é o dataLayer.
+
+   ⚠ ISTO É INERTE ATÉ EXISTIR O GATILHO NO GTM.
+   No container, crie um gatilho de "Evento personalizado" com o nome exato
+   `lead_submit` e aponte as tags de Lead para ele. Enquanto o gatilho não
+   existir, este push não faz nada — logo, não há risco de duplicar.
+
+   ⚠ Se depois a regra do painel passar a cobrir este domínio, haverá DOIS
+   emissores. Nesse caso, desligue um dos dois (§5).
+   ========================================================= */
+
+/* E.164 brasileiro: +55 + DDD + número. Meta e Google casam telefone por
+   E.164 — sem o país, "81999674123" vira "+81..." (Japão) e o match falha.
+   Só remove o 55 inicial quando sobra número demais: o DDD 55 existe. */
+function toE164(v) {
+  let d = String(v || "").trim().replace(/^\+\s*55\s*/, "").replace(/\D/g, "");
+
+  if (d.length > 11 && d.startsWith("55")) d = d.slice(2);
+
+  return d ? `+55${d}` : "";
+}
+
+/* Guarda de idempotência: duplo clique ou reenvio não geram Lead duplicado. */
+let leadEnviado = false;
+
+function dispararLead({ nome, email, telefone }) {
+  if (leadEnviado) return;
+  leadEnviado = true;
+
+  window.dataLayer = window.dataLayer || [];
+  window.dataLayer.push({
+    event:       "lead_submit",
+    lead_origem: "captura_manychat_pmpe",
+    lead_name:   nome || "",
+    lead_email:  (email || "").trim().toLowerCase(),
+    lead_phone:  toE164(telefone)
+  });
+}
+
 /* --- Envio --- */
 document.getElementById("lead-form").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -71,6 +115,8 @@ document.getElementById("lead-form").addEventListener("submit", async (e) => {
     /* NÃO chamar reset() aqui: a PixelX lê os campos no blur, e limpar o
        formulário antes de ela concluir faz gravar valores vazios. O visitante
        sai da página logo em seguida de qualquer forma. */
+
+    dispararLead(payload);
 
     // Mostra mensagem de sucesso
     const successEl = document.getElementById("form-success");
