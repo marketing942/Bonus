@@ -52,7 +52,11 @@ j=d.createElement(s),dl=l!='dataLayer'?'?l='+l:'';j.async=true;j.src=
         <span class="error" data-error-for="email"></span>
       </div>
       <div class="field">
-        <input type="text" id="telefone" name="telefone" autocomplete="tel" placeholder="WhatsApp — ex: (00) 00000-0000" required />
+        <!-- A classe pxa_mask_phone é o que manda a PixelX aplicar a máscara
+             neste campo (§6). Sem ela o telefone fica cru, o phone_valid() da
+             PixelX não normaliza para +55…, e a conversão não é encaminhada ao
+             Meta — mesmo com o GTM recebendo o evento normalmente. -->
+        <input type="text" id="telefone" name="telefone" class="pxa_mask_phone" inputmode="tel" autocomplete="tel" placeholder="Seu WhatsApp (com DDD)" required />
         <span class="error" data-error-for="telefone"></span>
       </div>
 

@@ -44,6 +44,21 @@ function clearError(id) {
 }
 const isEmail = v => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 
+/* §7.7 — conta DÍGITOS, não caracteres. O "+55" da máscara é texto FIXO: ele
+   aparece na tela desde o primeiro caractere digitado e somaria 2 dígitos,
+   fazendo um número incompleto passar por um teste ingênuo de "11 dígitos".
+   Por isso o prefixo é removido pelo "+" literal antes de contar — remover
+   pelos dígitos seria ambíguo, já que o DDD 55 existe (Santa Maria/RS).
+
+   Isto NÃO é preciosismo de UX: um telefone incompleto faz o phone_valid() da
+   PixelX rejeitar o lead, e a conversão não chega ao Meta. É o mesmo eixo do
+   defeito da classe pxa_mask_phone ausente. */
+const isPhone = (v) => {
+  const d = v.trim().replace(/^\+\s*55\s*/, "").replace(/\D/g, "");
+
+  return d.length === 11 && d[2] === "9";
+};
+
 function validate() {
   let ok = true;
   const nome  = document.getElementById("nome").value.trim();
@@ -54,7 +69,7 @@ function validate() {
 
   if (nome.length < 2) { setError("nome",     "Informe seu nome completo.");  ok = false; }
   if (!isEmail(email)) { setError("email",    "Informe um e-mail válido.");   ok = false; }
-  if (tel.length === 0) { setError("telefone", "Informe seu WhatsApp.");      ok = false; }
+  if (!isPhone(tel))   { setError("telefone", "Informe seu WhatsApp com DDD — ex: (81) 90000-0000."); ok = false; }
 
   return ok;
 }
