@@ -48,17 +48,23 @@ function validate() {
 /* =========================================================
    Emissor de Lead — via dataLayer (ver TRACKING.md §8.7)
 
-   As tags Meta de conversão são TAGS DO GTM, e tag do GTM só dispara por
-   GATILHO do GTM. `pixel_x_app.send_event()` NÃO as aciona — ele fala com o
-   backend da PixelX. O único caminho que o container escuta é o dataLayer.
+   ⚠ ESTE PUSH SOZINHO NÃO ENTREGA O LEAD NO META.
+   Verificado nesta página: o evento chega ao GTM e para ali. A ponte para o
+   Meta é a PixelX, e ela só encaminha a conversão quando existe REGRA DE
+   CONVERSÃO cadastrada no painel PARA ESTE SITE. Sem a regra, não importa
+   como o evento é produzido (clique, submit ou send_event) — o Meta não vê.
 
-   ⚠ ISTO É INERTE ATÉ EXISTIR O GATILHO NO GTM.
-   No container, crie um gatilho de "Evento personalizado" com o nome exato
-   `lead_submit` e aponte as tags de Lead para ele. Enquanto o gatilho não
-   existir, este push não faz nada — logo, não há risco de duplicar.
+   O id `IPEyzyfmJhKQEYIXAlZH` no botão é o mesmo que funciona na landing PMPE,
+   e aqui não dispara. Isso prova que a regra é por SITE no painel, não global
+   por id.
 
-   ⚠ Se depois a regra do painel passar a cobrir este domínio, haverá DOIS
-   emissores. Nesse caso, desligue um dos dois (§5).
+   Portanto, para completar o serviço:
+   1. Painel PixelX  → cadastrar este site e criar a regra de conversão (Lead).
+   2. GTM (opcional) → gatilho de Evento personalizado `lead_submit`, se quiser
+      acionar tags do container por este push.
+
+   ⚠ Com a regra do painel ativa E um gatilho no GTM, haverá DOIS emissores e o
+   Lead duplica. Escolha um dos dois (§5).
    ========================================================= */
 
 /* E.164 brasileiro: +55 + DDD + número. Meta e Google casam telefone por
