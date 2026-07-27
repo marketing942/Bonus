@@ -10,11 +10,25 @@ const SHEET_URL = "https://script.google.com/macros/s/AKfycbxdFplWVSfhTjvyIA7HIW
    retorno serve só para levar a pessoa de volta à conversa. */
 const INSTAGRAM_URL = "https://www.instagram.com/direct/inbox/";
 
-/* Tempo antes de redirecionar. A conversão é disparada por uma regra do painel
-   vinculada ao id do botão, e a requisição dela é assíncrona (debounce de
-   1500 ms na PixelX). Navegar antes disso cancela a requisição e o Lead se
-   perde — principalmente no mobile. Abaixo de ~1s começa a perder evento. */
-const REDIRECT_DELAY_MS = 1500;
+/* =========================================================
+   Janela de segurança antes de redirecionar
+
+   O clique no botão #IPEyzyfmJhKQEYIXAlZH aciona DOIS consumidores, e eles têm
+   resistência DIFERENTE ao unload da página:
+
+   · GTM   — envia por sendBeacon/pixel de imagem, que SOBREVIVE à navegação.
+   · PixelX— envia por requisição assíncrona, com debounce de ~1500 ms a partir
+             do clique. Se a página sair antes disso, a requisição é CANCELADA.
+
+   É exatamente essa diferença que produz o sintoma "o Lead chega no GTM mas não
+   chega no Meta": não é configuração de painel, é a página saindo cedo demais.
+   O código anterior navegava no mesmo tick do clique, então a PixelX nunca
+   chegava a enviar.
+
+   A contagem é feita a partir do CLIQUE, não do fim do fetch do Sheets — senão
+   a margem depende da latência da planilha e, num fetch rápido, o redirect cai
+   em cima do debounce. 2500 ms deixa ~1000 ms de folga sobre os 1500 da PixelX. */
+const LEAD_SAFETY_MS = 2500;
 
 /* --- Campo de WhatsApp (entrada livre, sem máscara) --- */
 const telefoneInput = document.getElementById("telefone");
@@ -45,60 +59,18 @@ function validate() {
   return ok;
 }
 
-/* =========================================================
-   Emissor de Lead — via dataLayer (ver TRACKING.md §8.7)
-
-   ⚠ ESTE PUSH SOZINHO NÃO ENTREGA O LEAD NO META.
-   Verificado nesta página: o evento chega ao GTM e para ali. A ponte para o
-   Meta é a PixelX, e ela só encaminha a conversão quando existe REGRA DE
-   CONVERSÃO cadastrada no painel PARA ESTE SITE. Sem a regra, não importa
-   como o evento é produzido (clique, submit ou send_event) — o Meta não vê.
-
-   O id `IPEyzyfmJhKQEYIXAlZH` no botão é o mesmo que funciona na landing PMPE,
-   e aqui não dispara. Isso prova que a regra é por SITE no painel, não global
-   por id.
-
-   Portanto, para completar o serviço:
-   1. Painel PixelX  → cadastrar este site e criar a regra de conversão (Lead).
-   2. GTM (opcional) → gatilho de Evento personalizado `lead_submit`, se quiser
-      acionar tags do container por este push.
-
-   ⚠ Com a regra do painel ativa E um gatilho no GTM, haverá DOIS emissores e o
-   Lead duplica. Escolha um dos dois (§5).
-   ========================================================= */
-
-/* E.164 brasileiro: +55 + DDD + número. Meta e Google casam telefone por
-   E.164 — sem o país, "81999674123" vira "+81..." (Japão) e o match falha.
-   Só remove o 55 inicial quando sobra número demais: o DDD 55 existe. */
-function toE164(v) {
-  let d = String(v || "").trim().replace(/^\+\s*55\s*/, "").replace(/\D/g, "");
-
-  if (d.length > 11 && d.startsWith("55")) d = d.slice(2);
-
-  return d ? `+55${d}` : "";
-}
-
-/* Guarda de idempotência: duplo clique ou reenvio não geram Lead duplicado. */
-let leadEnviado = false;
-
-function dispararLead({ nome, email, telefone }) {
-  if (leadEnviado) return;
-  leadEnviado = true;
-
-  window.dataLayer = window.dataLayer || [];
-  window.dataLayer.push({
-    event:       "lead_submit",
-    lead_origem: "captura_manychat_pmpe",
-    lead_name:   nome || "",
-    lead_email:  (email || "").trim().toLowerCase(),
-    lead_phone:  toE164(telefone)
-  });
-}
-
-/* --- Envio --- */
+/* --- Envio ---
+   Quem dispara o Lead é o CLIQUE no botão #IPEyzyfmJhKQEYIXAlZH, consumido
+   pela PixelX e pelo GTM. Este handler não emite conversão nenhuma — ele só
+   precisa NÃO atrapalhar: sem preventDefault no clique (§7.4), sem
+   stopPropagation, e sem sair da página antes da PixelX enviar. */
 document.getElementById("lead-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   if (!validate()) return;
+
+  /* Marca o instante do clique. O debounce da PixelX conta a partir daqui,
+     então é daqui que a janela de segurança precisa ser medida. */
+  const tClique = Date.now();
 
   const btn = e.target.querySelector("button[type=submit]");
   btn.disabled    = true;
@@ -122,17 +94,19 @@ document.getElementById("lead-form").addEventListener("submit", async (e) => {
        formulário antes de ela concluir faz gravar valores vazios. O visitante
        sai da página logo em seguida de qualquer forma. */
 
-    dispararLead(payload);
-
     // Mostra mensagem de sucesso
     const successEl = document.getElementById("form-success");
     successEl.hidden = false;
     successEl.scrollIntoView({ behavior: "smooth", block: "center" });
 
-    // Redireciona na mesma aba (sem popup), dando tempo à conversão
+    /* Redireciona na mesma aba (sem popup), descontando o tempo que o fetch do
+       Sheets já consumiu. Se a planilha demorou 800 ms, só faltam 1700 — o que
+       importa é o total desde o CLIQUE, não desde agora. */
+    const restante = Math.max(0, LEAD_SAFETY_MS - (Date.now() - tClique));
+
     setTimeout(() => {
       window.location.href = INSTAGRAM_URL;
-    }, REDIRECT_DELAY_MS);
+    }, restante);
 
   } catch (err) {
     setError("telefone", "Erro ao enviar. Tente novamente.");
