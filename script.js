@@ -1,122 +1,134 @@
 /* =========================================================
-   CPPEM — Formulário → Google Sheets + redirect Instagram (ManyChat)
+   CPPEM — Captura ManyChat/PMPE
+   Formulário → Google Sheets → retorno à DM do Instagram
+
+   Estrutura espelhada do captura-cppem (que funciona). Os identificadores do
+   formulário, os nomes dos campos e as barreiras de submit são IGUAIS aos de
+   lá — a única diferença de propósito é o destino: aqui grava no Sheets e
+   devolve o visitante para a caixa de mensagens do Instagram.
+
+   Quem dispara o Lead é a regra do painel da PixelX, vinculada ao formulário
+   #IPEyzyfmJhKQEYIXAlZH. Este arquivo NÃO emite conversão — ele só precisa
+   não atrapalhar: sem preventDefault no clique válido, sem stopPropagation
+   quando válido, e sem sair da página antes da PixelX enviar.
    ========================================================= */
 
 const SHEET_URL = "https://script.google.com/macros/s/AKfycbxdFplWVSfhTjvyIA7HIWb645xRjGNhBVhTdTf5UMjo0lSpW_A_jCuys0qB4uImKXPQ/exec?aba=MANYCHAT";
 
 /* Link de retorno à caixa de mensagens do Instagram.
    Esta página é acessada por um link enviado no PV do usuário, ou seja, o fluxo
-   do ManyChat já foi disparado lá na DM. Aqui não há ?ref= a acrescentar — o
-   retorno serve só para levar a pessoa de volta à conversa. */
+   do ManyChat já foi disparado lá na DM. Não há ?ref= a acrescentar — o retorno
+   serve só para levar a pessoa de volta à conversa. */
 const INSTAGRAM_URL = "https://www.instagram.com/direct/inbox/";
 
-/* =========================================================
-   Janela de segurança antes de redirecionar
-
-   O clique no botão #IPEyzyfmJhKQEYIXAlZH aciona DOIS consumidores, e eles têm
-   resistência DIFERENTE ao unload da página:
-
-   · GTM   — envia por sendBeacon/pixel de imagem, que SOBREVIVE à navegação.
-   · PixelX— envia por requisição assíncrona, com debounce de ~1500 ms a partir
-             do clique. Se a página sair antes disso, a requisição é CANCELADA.
-
-   É exatamente essa diferença que produz o sintoma "o Lead chega no GTM mas não
-   chega no Meta": não é configuração de painel, é a página saindo cedo demais.
-   O código anterior navegava no mesmo tick do clique, então a PixelX nunca
-   chegava a enviar.
-
-   A contagem é feita a partir do CLIQUE, não do fim do fetch do Sheets — senão
-   a margem depende da latência da planilha e, num fetch rápido, o redirect cai
-   em cima do debounce. 2500 ms deixa ~1000 ms de folga sobre os 1500 da PixelX. */
+/* Janela de segurança antes de redirecionar, contada a partir do CLIQUE.
+   O handler da PixelX roda no submit, mas a requisição dela é assíncrona (com
+   debounce de ~1500 ms). Navegar antes disso cancela a requisição e o Lead se
+   perde — principalmente no mobile. */
 const LEAD_SAFETY_MS = 2500;
 
-/* --- Campo de WhatsApp (entrada livre, sem máscara) --- */
-const telefoneInput = document.getElementById("telefone");
+/* --- Elementos (ids iguais aos do captura-cppem) --- */
+const form = document.getElementById("IPEyzyfmJhKQEYIXAlZH");
+const nomeInput = document.getElementById("lead_name");
+const emailInput = document.getElementById("lead_email");
+const telefoneInput = document.getElementById("lead_phone");
+const submitBtn = document.getElementById("lead_submit");
 
-/* --- Validação --- */
-function setError(id, msg) {
-  document.getElementById(id).classList.add("is-invalid");
-  document.querySelector(`[data-error-for="${id}"]`).textContent = msg;
+/* --- Validação ---
+   A chave do erro é o valor de data-error-for (= atributo name do campo). --- */
+function setError(errorKey, input, msg) {
+  const errorEl = document.querySelector(`[data-error-for="${errorKey}"]`);
+
+  if (input) input.classList.add("is-invalid");
+  if (errorEl) errorEl.textContent = msg;
 }
-function clearError(id) {
-  document.getElementById(id).classList.remove("is-invalid");
-  document.querySelector(`[data-error-for="${id}"]`).textContent = "";
+
+function clearError(errorKey, input) {
+  const errorEl = document.querySelector(`[data-error-for="${errorKey}"]`);
+
+  if (input) input.classList.remove("is-invalid");
+  if (errorEl) errorEl.textContent = "";
 }
-const isEmail = v => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 
-/* §7.7 — conta DÍGITOS, não caracteres. O "+55" da máscara é texto FIXO: ele
-   aparece na tela desde o primeiro caractere digitado e somaria 2 dígitos,
-   fazendo um número incompleto passar por um teste ingênuo de "11 dígitos".
-   Por isso o prefixo é removido pelo "+" literal antes de contar — remover
-   pelos dígitos seria ambíguo, já que o DDD 55 existe (Santa Maria/RS).
+const isEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 
-   Isto NÃO é preciosismo de UX: um telefone incompleto faz o phone_valid() da
-   PixelX rejeitar o lead, e a conversão não chega ao Meta. É o mesmo eixo do
-   defeito da classe pxa_mask_phone ausente. */
+/* Conta DÍGITOS, não caracteres. O "+55" da máscara é texto FIXO: aparece na
+   tela desde o primeiro caractere digitado e somaria 2 dígitos, fazendo um
+   número incompleto passar por um teste ingênuo de "11 dígitos". Por isso o
+   prefixo é removido pelo "+" literal antes de contar — remover pelos dígitos
+   seria ambíguo, já que o DDD 55 existe (Santa Maria/RS). */
 const isPhone = (v) => {
-  const d = v.trim().replace(/^\+\s*55\s*/, "").replace(/\D/g, "");
+  const nacional = v.trim().replace(/^\+\s*55\s*/, "");
+  const d = nacional.replace(/\D/g, "");
 
   return d.length === 11 && d[2] === "9";
 };
 
 function validate() {
   let ok = true;
-  const nome  = document.getElementById("nome").value.trim();
-  const email = document.getElementById("email").value.trim();
-  const tel   = telefoneInput.value.trim();
 
-  ["nome","email","telefone"].forEach(clearError);
+  const nome = nomeInput?.value.trim() || "";
+  const email = emailInput?.value.trim() || "";
+  const tel = telefoneInput?.value.trim() || "";
 
-  if (nome.length < 2) { setError("nome",     "Informe seu nome completo.");  ok = false; }
-  if (!isEmail(email)) { setError("email",    "Informe um e-mail válido.");   ok = false; }
-  if (!isPhone(tel))   { setError("telefone", "Informe seu WhatsApp com DDD — ex: (81) 90000-0000."); ok = false; }
+  clearError("name", nomeInput);
+  clearError("email", emailInput);
+  clearError("phone", telefoneInput);
+
+  if (nome.length < 2) {
+    setError("name", nomeInput, "Informe seu nome completo.");
+    ok = false;
+  }
+
+  if (!isEmail(email)) {
+    setError("email", emailInput, "Informe um e-mail válido.");
+    ok = false;
+  }
+
+  if (!isPhone(tel)) {
+    setError("phone", telefoneInput, "Informe seu WhatsApp com DDD — ex: (81) 90000-0000.");
+    ok = false;
+  }
 
   return ok;
 }
 
-/* --- Envio ---
-   Quem dispara o Lead é o CLIQUE no botão #IPEyzyfmJhKQEYIXAlZH, consumido
-   pela PixelX e pelo GTM. Este handler não emite conversão nenhuma — ele só
-   precisa NÃO atrapalhar: sem preventDefault no clique (§7.4), sem
-   stopPropagation, e sem sair da página antes da PixelX enviar. */
-document.getElementById("lead-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  if (!validate()) return;
-
-  /* Marca o instante do clique. O debounce da PixelX conta a partir daqui,
-     então é daqui que a janela de segurança precisa ser medida. */
-  const tClique = Date.now();
-
-  const btn = e.target.querySelector("button[type=submit]");
-  btn.disabled    = true;
-  btn.textContent = "ENVIANDO...";
+/* --- Envio --- */
+async function enviar(tClique) {
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.textContent = "ENVIANDO...";
+  }
 
   const payload = {
-    nome:     document.getElementById("nome").value.trim(),
-    email:    document.getElementById("email").value.trim(),
-    telefone: telefoneInput.value.trim(),
+    nome: nomeInput?.value.trim() || "",
+    email: emailInput?.value.trim() || "",
+    telefone: telefoneInput?.value.trim() || "",
+    origem: "captura_manychat_pmpe",
+    pagina: window.location.href,
+    data_envio: new Date().toISOString()
   };
 
   try {
     await fetch(SHEET_URL, {
-      method:  "POST",
-      mode:    "no-cors",
-      headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify(payload),
+      method: "POST",
+      mode: "no-cors",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(payload)
     });
 
-    /* NÃO chamar reset() aqui: a PixelX lê os campos no blur, e limpar o
-       formulário antes de ela concluir faz gravar valores vazios. O visitante
-       sai da página logo em seguida de qualquer forma. */
+    /* NÃO chamar form.reset() aqui: a PixelX lê os campos no blur, e limpar o
+       formulário antes de ela concluir faz gravar valores vazios. */
 
-    // Mostra mensagem de sucesso
     const successEl = document.getElementById("form-success");
-    successEl.hidden = false;
-    successEl.scrollIntoView({ behavior: "smooth", block: "center" });
 
-    /* Redireciona na mesma aba (sem popup), descontando o tempo que o fetch do
-       Sheets já consumiu. Se a planilha demorou 800 ms, só faltam 1700 — o que
-       importa é o total desde o CLIQUE, não desde agora. */
+    if (successEl) {
+      successEl.hidden = false;
+      successEl.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+
+    /* Desconta o tempo que o fetch do Sheets já consumiu: o que importa é o
+       total desde o clique, não desde agora. */
     const restante = Math.max(0, LEAD_SAFETY_MS - (Date.now() - tClique));
 
     setTimeout(() => {
@@ -124,12 +136,58 @@ document.getElementById("lead-form").addEventListener("submit", async (e) => {
     }, restante);
 
   } catch (err) {
-    setError("telefone", "Erro ao enviar. Tente novamente.");
+    console.error("[Form] Erro ao enviar:", err);
+
+    setError("phone", telefoneInput, "Erro ao enviar. Tente novamente.");
 
     /* Só reabilita em caso de erro. Reabilitar no sucesso deixaria o botão
        clicável durante a espera do redirecionamento, e cada clique novo
-       dispararia a regra de conversão de novo — Lead duplicado. */
-    btn.disabled    = false;
-    btn.textContent = "QUERO RECEBER O MATERIAL";
+       dispararia a regra de conversão de novo. */
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = "QUERO RECEBER O MATERIAL";
+    }
   }
-});
+}
+
+/* PRIMEIRA BARREIRA — no clique do botão, fase de captura.
+   Se os dados forem inválidos, o preventDefault aqui cancela a ação padrão do
+   botão, e o navegador NUNCA chega a disparar o evento "submit". É isso que
+   impede a PixelX de registrar uma conversão incompleta. O Enter também passa
+   por aqui: a submissão implícita dispara um click no botão de submit. */
+submitBtn?.addEventListener(
+  "click",
+  (e) => {
+    if (!validate()) e.preventDefault();
+  },
+  true
+);
+
+/* SEGUNDA BARREIRA — "submit" capturado no DOCUMENT, não no formulário.
+   Um listener de captura no document roda SEMPRE antes de qualquer listener
+   registrado no próprio <form>, independente de quem registrou primeiro — a
+   PixelX registra o dela de dentro de um start() assíncrono, então não há
+   outra forma de garantir a ordem.
+
+   - Inválido -> stopImmediatePropagation(): o evento morre aqui e nunca chega
+                 à PixelX.
+   - Válido   -> deixamos propagar normalmente para ela registrar a conversão.
+   Em ambos os casos o preventDefault impede o recarregamento da página. */
+document.addEventListener(
+  "submit",
+  (e) => {
+    if (e.target !== form) return;
+
+    const tClique = Date.now();
+
+    e.preventDefault();
+
+    if (!validate()) {
+      e.stopImmediatePropagation();
+      return;
+    }
+
+    enviar(tClique);
+  },
+  true
+);

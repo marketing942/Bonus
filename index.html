@@ -42,29 +42,29 @@ j=d.createElement(s),dl=l!='dataLayer'?'?l='+l:'';j.async=true;j.src=
     </p>
 
     <!-- 2. FORMULÁRIO  +  3. BOTÃO -->
-    <form class="form" id="lead-form" novalidate>
+    <!-- Estrutura espelhada do captura-cppem, que funciona.
+         Os identificadores abaixo NÃO são decorativos — são o que o painel da
+         PixelX usa para reconhecer o formulário e disparar a conversão:
+           · name="lead_form" e id="IPEyzyfmJhKQEYIXAlZH" no <form>
+           · id/name lead_name/name, lead_email/email, lead_phone/phone
+           · classe pxa_mask_phone no telefone
+           · id="lead_submit" no botão
+         Alterar qualquer um exige desligar a regra correspondente no painel. -->
+    <form class="form" name="lead_form" id="IPEyzyfmJhKQEYIXAlZH" novalidate>
       <div class="field">
-        <input type="text" id="nome" name="nome" autocomplete="name" placeholder="Nome completo" required />
-        <span class="error" data-error-for="nome"></span>
+        <input type="text" id="lead_name" name="name" autocomplete="name" aria-label="Nome completo" placeholder="Nome completo" required />
+        <span class="error" data-error-for="name"></span>
       </div>
       <div class="field">
-        <input type="email" id="email" name="email" autocomplete="email" placeholder="E-mail" required />
+        <input type="email" id="lead_email" name="email" autocomplete="email" aria-label="E-mail" placeholder="E-mail" required />
         <span class="error" data-error-for="email"></span>
       </div>
       <div class="field">
-        <!-- A classe pxa_mask_phone é o que manda a PixelX aplicar a máscara
-             neste campo (§6). Sem ela o telefone fica cru, o phone_valid() da
-             PixelX não normaliza para +55…, e a conversão não é encaminhada ao
-             Meta — mesmo com o GTM recebendo o evento normalmente. -->
-        <input type="text" id="telefone" name="telefone" class="pxa_mask_phone" inputmode="tel" autocomplete="tel" placeholder="Seu WhatsApp (com DDD)" required />
-        <span class="error" data-error-for="telefone"></span>
+        <input class="pxa_mask_phone" type="text" id="lead_phone" name="phone" autocomplete="tel" aria-label="WhatsApp com DDD" placeholder="Seu WhatsApp com DDD — ex: (00) 00000-0000" required />
+        <span class="error" data-error-for="phone"></span>
       </div>
 
-      <!-- ⚠ NÃO RENOMEAR este id sem antes desligar a regra correspondente no
-           painel da PixelX / GTM. Ele NÃO é um id decorativo: é o identificador
-           que a regra de conversão usa para disparar o Lead nas tags Meta do
-           container. Removê-lo zera o Lead (já testado na landing PMPE). -->
-      <button type="submit" id="IPEyzyfmJhKQEYIXAlZH" class="cta">QUERO RECEBER O MATERIAL</button>
+      <button type="submit" id="lead_submit" class="cta">QUERO RECEBER O MATERIAL</button>
       <p class="note">Cadastro gratuito. Seus dados estão seguros.</p>
       <p class="success" id="form-success" role="status" hidden>
         ✅ Cadastro recebido!<br />
