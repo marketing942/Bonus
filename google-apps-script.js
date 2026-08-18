@@ -25,6 +25,13 @@
 
 const ABA_DESTINO = "CPPEM";
 
+/* Origens que NÃO vão para a aba padrão. Quem não estiver aqui cai na
+   ABA_DESTINO. A aba é criada no primeiro lead, já no padrão de colunas
+   daqui — a aba "UNICIVE" antiga tem outro layout e fica intocada. */
+const ABA_POR_ORIGEM = {
+  UNICIVE: "UNICIVE_Novo"
+};
+
 /* Rede de segurança: origem desconhecida ou bloqueada não é descartada — cai
    aqui, para nada se perder por um ?aba= errado num site novo. */
 const ABA_IGNORADOS = "IGNORADOS";
@@ -41,15 +48,19 @@ const ABAS_PARA_MIGRAR = ["MarkTeste"];
    aceitos (minúsculos, sem depender de acento na comparação). O primeiro é o
    usado ao criar uma aba do zero. */ 
 const CAMPOS = [
-  { chave: "data",         titulos: ["data e hora", "data"],                                  formato: "dd/MM/yyyy HH:mm:ss" },
-  { chave: "origem",       titulos: ["origem"],                                               formato: "@" },
-  { chave: "nome",         titulos: ["nome"],                                                 formato: "@" },
-  { chave: "email",        titulos: ["email", "e-mail"],                                      formato: "@" },
-  { chave: "telefone",     titulos: ["telefone", "whatsapp", "celular"],                      formato: "@" },
-  { chave: "url",          titulos: ["pagina url", "página url", "pagina", "página", "url"],  formato: "@" },
-  { chave: "utm_source",   titulos: ["utm source", "utm_source"],                             formato: "@" },
-  { chave: "utm_campaign", titulos: ["utm campaign", "utm_campaign"],                         formato: "@" }
+  { chave: "data",         titulo: "Data e Hora",  largura: 160, titulos: ["data e hora", "data"],                                  formato: "dd/MM/yyyy HH:mm:ss" },
+  { chave: "origem",       titulo: "Origem",       largura: 120, titulos: ["origem"],                                               formato: "@" },
+  { chave: "nome",         titulo: "Nome",         largura: 220, titulos: ["nome"],                                                 formato: "@" },
+  { chave: "email",        titulo: "Email",        largura: 250, titulos: ["email", "e-mail"],                                      formato: "@" },
+  { chave: "telefone",     titulo: "Telefone",     largura: 180, titulos: ["telefone", "whatsapp", "celular"],                      formato: "@" },
+  { chave: "url",          titulo: "Pagina URL",   largura: 320, titulos: ["pagina url", "página url", "pagina", "página", "url"],  formato: "@" },
+  { chave: "utm_source",   titulo: "UTM Source",   largura: 150, titulos: ["utm source", "utm_source"],                             formato: "@" },
+  { chave: "utm_campaign", titulo: "UTM Campaign", largura: 220, titulos: ["utm campaign", "utm_campaign"],                         formato: "@" }
 ];
+
+/* Colunas criadas junto com uma aba nova mas que o script NUNCA escreve — são
+   do time. Ficam depois das colunas de dados. */
+const COLUNAS_MANUAIS = ["VENDEDOR"];
 
 /* Quem pode gravar na aba principal. Chave = o que chega em ?aba= (ou
    ?origem=); valor = o rótulo da coluna Origem, se a aba tiver essa coluna.
@@ -86,6 +97,14 @@ const DOMINIOS = [
   { teste: /\/\/operacaoalvorada\.cppem\.com\.br/i, chave: "OPERACAO" }
 ];
 
+/* A campanha também identifica a origem, e às vezes é o único sinal: o mesmo
+   anúncio pode apontar para uma landing genérica. "bau_unicive" em qualquer
+   variação cai aqui. Comparado contra a UTM Campaign e contra a URL inteira,
+   porque a campanha costuma aparecer nas duas. */
+const CAMPANHAS = [
+  { teste: /unicive/i, chave: "UNICIVE" }
+];
+
 /* ---------- ENTRADA ---------- */
 
 function doPost(e) {
@@ -111,10 +130,7 @@ function doPost(e) {
     const dados = JSON.parse((e && e.postData && e.postData.contents) || "{}");
     const params = (e && e.parameter) || {};
     const lead = montarLead(dados, params);
-
-    const planilha = lead.permitida
-      ? obterAba(ABA_DESTINO)
-      : obterAba(ABA_IGNORADOS);
+    const planilha = obterAba(lead.aba);
 
     escreverLead(planilha, lead.valores);
 
@@ -134,7 +150,7 @@ function doPost(e) {
 
 function doGet() {
   return ContentService.createTextOutput(
-    "CPPEM Sheets — funcionando (aba única: " + ABA_DESTINO + ")."
+    "CPPEM Sheets — funcionando (abas: " + abasDeDestino().join(", ") + ")."
   );
 }
 
@@ -150,33 +166,60 @@ function montarLead(dados, params) {
   );
 
   const url = pegar(dados, ["pagina_url", "pagina", "page_url", "url"]);
-
-  /* A URL tem a última palavra sobre a origem: ela é o fato, o ?aba= é o que o
-     site diz de si mesmo. É o que corrige um site novo copiado de outro que
-     esqueceu de trocar o parâmetro.
-
-     "Última palavra" precisa valer INCLUSIVE quando a URL aponta para um site
-     bloqueado. Um encadeamento `ORIGENS[porUrl] || ORIGENS[chave]` deixava o
-     ?aba= resgatar o que a URL tinha acabado de barrar — foi assim que um lead
-     de operacaoalvorada.cppem.com.br entrou rotulado como CPPEM. Se a URL é
-     reconhecida, ela decide sozinha; o ?aba= só vale quando a URL não diz
-     nada. */
-  const porUrl = deduzirPorUrl(url);
-  const origem = porUrl ? (ORIGENS[porUrl] || "") : (ORIGENS[chave] || "");
+  const campanha = pegar(dados, ["utm_campaign", "utmCampaign"]);
+  const chaveFinal = resolverOrigem(chave, url, campanha);
+  const origem = ORIGENS[chaveFinal] || "";
 
   return {
     permitida: origem !== "",
+    aba: origem ? abaDaOrigem(origem) : ABA_IGNORADOS,
     valores: {
       data: new Date(),
-      origem: origem || porUrl || chave || "DESCONHECIDA",
+      origem: origem || chaveFinal || "DESCONHECIDA",
       nome: pegar(dados, ["nome", "name", "nome_completo"]),
       email: pegar(dados, ["email", "e-mail", "mail"]),
       telefone: telefoneTexto(pegar(dados, ["telefone", "phone", "whatsapp", "celular", "phone_e164"])),
       url: url,
       utm_source: pegar(dados, ["utm_source", "utmSource"]),
-      utm_campaign: pegar(dados, ["utm_campaign", "utmCampaign"])
+      utm_campaign: campanha
     }
   };
+}
+
+/* Decide de quem é o lead a partir de três sinais, nesta ordem:
+
+   1. URL de site BLOQUEADO manda em tudo. Sem isso, um `||` deixava o ?aba=
+      resgatar o que a URL tinha acabado de barrar — foi assim que um lead de
+      operacaoalvorada.cppem.com.br entrou rotulado como CPPEM.
+   2. A campanha, que identifica sozinha ("bau_unicive" é lead da UniCV mesmo
+      que o anúncio caia numa landing genérica).
+   3. A URL reconhecida.
+   4. O ?aba=, que é só o que o site diz de si mesmo — o sinal mais fraco,
+      porque sobrevive a copiar/colar de um projeto para outro. */
+function resolverOrigem(chaveDoSite, url, campanha) {
+  const porUrl = deduzirPorUrl(url);
+  if (porUrl && !ORIGENS[porUrl]) return porUrl;
+
+  const porCampanha = deduzirPorCampanha(campanha) || deduzirPorCampanha(url);
+  if (porCampanha) return porCampanha;
+
+  return porUrl || chaveDoSite;
+}
+
+/* Para onde vai o lead depois de identificado. */
+function abaDaOrigem(origem) {
+  return ABA_POR_ORIGEM[origem] || ABA_DESTINO;
+}
+
+/* Todas as abas que recebem lead — a padrão mais as desviadas. */
+function abasDeDestino() {
+  const abas = [ABA_DESTINO];
+
+  Object.keys(ABA_POR_ORIGEM).forEach(function (origem) {
+    if (abas.indexOf(ABA_POR_ORIGEM[origem]) === -1) abas.push(ABA_POR_ORIGEM[origem]);
+  });
+
+  return abas;
 }
 
 function pegar(obj, chaves) {
@@ -196,6 +239,16 @@ function deduzirPorUrl(url) {
 
   for (let i = 0; i < DOMINIOS.length; i++) {
     if (DOMINIOS[i].teste.test(url)) return DOMINIOS[i].chave;
+  }
+
+  return "";
+}
+
+function deduzirPorCampanha(texto) {
+  if (!texto) return "";
+
+  for (let i = 0; i < CAMPANHAS.length; i++) {
+    if (CAMPANHAS[i].teste.test(texto)) return CAMPANHAS[i].chave;
   }
 
   return "";
@@ -335,7 +388,7 @@ function obterAba(nome) {
 /* Só roda em aba nova/vazia. A aba CPPEM já existe e tem cabeçalho próprio —
    este código nunca vai reescrevê-lo. */
 function criarCabecalho(planilha) {
-  const titulos = CAMPOS.map(function (c) { return titulo(c.titulos[0]); });
+  const titulos = CAMPOS.map(function (c) { return c.titulo; }).concat(COLUNAS_MANUAIS);
 
   const h = planilha.getRange(1, 1, 1, titulos.length);
   h.setValues([titulos]);
@@ -343,20 +396,41 @@ function criarCabecalho(planilha) {
   h.setBackground("#00E63C");
   h.setFontColor("#0A0A0A");
 
-  planilha.setFrozenRows(1);
-}
+  CAMPOS.forEach(function (c, i) {
+    planilha.setColumnWidth(i + 1, c.largura);
+    planilha
+      .getRange(2, i + 1, Math.max(planilha.getMaxRows() - 1, 1), 1)
+      .setNumberFormat(c.formato);
+  });
 
-function titulo(t) {
-  return t.replace(/(^|\s)\S/g, function (c) { return c.toUpperCase(); });
+  // As manuais em cinza, para ficar claro que não vêm do site.
+  COLUNAS_MANUAIS.forEach(function (_, i) {
+    const col = CAMPOS.length + i + 1;
+    planilha.setColumnWidth(col, 160);
+    planilha.getRange(1, col).setBackground("#3A3A3A").setFontColor("#FFFFFF");
+  });
+
+  planilha.setFrozenRows(1);
 }
 
 /* ---------- DIAGNÓSTICO (rodar à mão; não altera nada) ---------- */
 
 function conferirPlanilha() {
-  const planilha = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_DESTINO);
+  abasDeDestino().forEach(function (nome) { conferirAba(nome); });
+
+  Logger.log("");
+  Logger.log("Roteamento: %s", Object.keys(ABA_POR_ORIGEM).map(function (o) {
+    return o + " -> " + ABA_POR_ORIGEM[o];
+  }).join(" | ") + " | demais -> " + ABA_DESTINO);
+}
+
+function conferirAba(nomeAba) {
+  const planilha = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(nomeAba);
+
+  Logger.log("");
 
   if (!planilha) {
-    Logger.log('Aba "%s" não existe.', ABA_DESTINO);
+    Logger.log('Aba "%s": ainda não existe — será criada no padrão no primeiro lead.', nomeAba);
     return;
   }
 
@@ -364,7 +438,7 @@ function conferirPlanilha() {
   const cabecalho = planilha.getRange(1, 1, 1, largura).getValues()[0];
   const mapa = mapaColunas(planilha);
 
-  Logger.log('Aba "%s": %s linhas, %s colunas', ABA_DESTINO, planilha.getLastRow(), largura);
+  Logger.log('Aba "%s": %s linhas, %s colunas', nomeAba, planilha.getLastRow(), largura);
   Logger.log("Cabeçalho: %s", cabecalho.join(" | "));
 
   CAMPOS.forEach(function (campo) {
@@ -406,20 +480,26 @@ function prepararAba() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   ss.setSpreadsheetTimeZone(FUSO);
 
-  const planilha = ss.getSheetByName(ABA_DESTINO);
-  if (!planilha) throw new Error('Aba "' + ABA_DESTINO + '" não existe.');
+  abasDeDestino().forEach(function (nome) {
+    const planilha = ss.getSheetByName(nome);
 
-  const mapa = mapaColunas(planilha);
-  const linhas = Math.max(planilha.getMaxRows() - 1, 1);
+    if (!planilha) {
+      Logger.log('Aba "%s": ainda não existe, nada a formatar.', nome);
+      return;
+    }
 
-  CAMPOS.forEach(function (campo) {
-    const col = mapa[campo.chave];
-    if (col === undefined) return;
-    planilha.getRange(2, col + 1, linhas, 1).setNumberFormat(campo.formato);
+    const mapa = mapaColunas(planilha);
+    const linhas = Math.max(planilha.getMaxRows() - 1, 1);
+
+    CAMPOS.forEach(function (campo) {
+      const col = mapa[campo.chave];
+      if (col === undefined) return;
+      planilha.getRange(2, col + 1, linhas, 1).setNumberFormat(campo.formato);
+    });
+
+    planilha.setFrozenRows(1);
+    Logger.log("Formatos aplicados na aba %s.", nome);
   });
-
-  planilha.setFrozenRows(1);
-  Logger.log("Formatos aplicados na aba %s.", ABA_DESTINO);
 }
 
 /* Opcional: cria a coluna Origem como B, empurrando o resto para a direita
@@ -497,10 +577,10 @@ function preencherOrigemPelaUrl() {
      "MIGRADA_<nome>", o que também impede migrar duas vezes por engano. */
 function migrarAbasParaCPPEM() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const destino = obterAba(ABA_DESTINO);
-  const mapaDestino = mapaColunas(destino);
 
-  const novas = [];
+  /* Agrupado por aba de destino: os leads da UniCV vão para a UNICIVE_Novo, o
+     resto para a CPPEM — a mesma regra que vale para os leads novos. */
+  const porAba = {};
   let puladas = 0;
 
   /* Comparação tolerante: nome de aba costuma vir com espaço sobrando ou caixa
@@ -523,8 +603,9 @@ function migrarAbasParaCPPEM() {
 
     /* Cada aba diz por que ficou de fora. Sem isso, "não aconteceu nada" não
        tem como ser diagnosticado sem adivinhação. */
-    if (nome === ABA_DESTINO || nome === ABA_IGNORADOS) {
-      Logger.log('  "%s": pulada (é a aba de destino ou a de ignorados).', nome);
+    // Aba de destino nunca é fonte — senão migraria para dentro de si mesma.
+    if (abasDeDestino().indexOf(nome) >= 0 || nome === ABA_IGNORADOS) {
+      Logger.log('  "%s": pulada (é aba de destino ou a de ignorados).', nome);
       return;
     }
     if (/^MIGRADA_/i.test(nome)) {
@@ -560,20 +641,25 @@ function migrarAbasParaCPPEM() {
       };
 
       const url = valor("url");
-      const porUrl = deduzirPorUrl(url);
-      const daLinha = normalizarChave(valor("origem"));
+      const campanha = valor("utm_campaign");
 
-      // Mesma regra do montarLead: URL reconhecida decide sozinha.
-      const origem = porUrl
-        ? (ORIGENS[porUrl] || "")
-        : (ORIGENS[daLinha] || ORIGENS[chaveDaAba] || "");
+      /* Mesma cadeia de sinais do lead novo. O ?aba= não existe aqui, então o
+         lugar dele é ocupado pela coluna Origem da linha — e, faltando ela,
+         pelo nome da aba. */
+      const chaveFinal = resolverOrigem(
+        normalizarChave(valor("origem")) || chaveDaAba, url, campanha
+      );
+      const origem = ORIGENS[chaveFinal] || "";
 
       if (!origem) {
         puladas++;
         continue;
       }
 
-      novas.push({
+      const destino = abaDaOrigem(origem);
+      if (!porAba[destino]) porAba[destino] = [];
+
+      porAba[destino].push({
         data: converterData(mapaOrigem.data === undefined ? "" : l[mapaOrigem.data]),
         origem: origem,
         nome: valor("nome"),
@@ -581,7 +667,7 @@ function migrarAbasParaCPPEM() {
         telefone: telefoneTexto(valor("telefone")),
         url: url,
         utm_source: valor("utm_source"),
-        utm_campaign: valor("utm_campaign")
+        utm_campaign: campanha
       });
 
       migradasAqui++;
@@ -596,30 +682,38 @@ function migrarAbasParaCPPEM() {
     }
   });
 
-  if (!novas.length) {
+  const destinos = Object.keys(porAba);
+
+  if (!destinos.length) {
     Logger.log("RESULTADO: nada migrado. %s linhas puladas por origem não permitida.", puladas);
     return;
   }
 
-  const inicio = destino.getLastRow() + 1;
+  destinos.forEach(function (nomeDestino) {
+    const destino = obterAba(nomeDestino);
+    const mapaDestino = mapaColunas(destino);
+    const linhas = porAba[nomeDestino];
+    const inicio = destino.getLastRow() + 1;
 
-  // Mesma regra do escreverLead: só as colunas conhecidas são tocadas.
-  blocosContiguos(mapaDestino).forEach(function (bloco) {
-    bloco.forEach(function (campo, i) {
+    // Mesma regra do escreverLead: só as colunas conhecidas são tocadas.
+    blocosContiguos(mapaDestino).forEach(function (bloco) {
+      bloco.forEach(function (campo, i) {
+        destino
+          .getRange(inicio, bloco.inicio + i + 1, linhas.length, 1)
+          .setNumberFormat(campo.formato);
+      });
+
       destino
-        .getRange(inicio, bloco.inicio + i + 1, novas.length, 1)
-        .setNumberFormat(campo.formato);
+        .getRange(inicio, bloco.inicio + 1, linhas.length, bloco.length)
+        .setValues(linhas.map(function (lead) {
+          return bloco.map(function (campo) { return lead[campo.chave]; });
+        }));
     });
 
-    destino
-      .getRange(inicio, bloco.inicio + 1, novas.length, bloco.length)
-      .setValues(novas.map(function (lead) {
-        return bloco.map(function (campo) { return lead[campo.chave]; });
-      }));
+    Logger.log("RESULTADO: %s linhas migradas para a aba %s.", linhas.length, nomeDestino);
   });
 
-  Logger.log("RESULTADO: %s linhas migradas para %s. %s puladas (origem não permitida).",
-             novas.length, ABA_DESTINO, puladas);
+  Logger.log("RESULTADO: %s puladas (origem não permitida).", puladas);
 }
 
 /* As abas antigas gravavam a data como TEXTO "dd/MM/yyyy HH:mm:ss". */
