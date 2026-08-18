@@ -4,7 +4,8 @@
    Uma implantação recebe os leads de todos os sites e roteia por origem:
 
      aba CPPEM        captura-cppem, pmpe, captura-manychat-pmpe,
-                      mentoria-individual, presencial-em-casa
+                      mentoria-individual, presencial-em-casa,
+                      supletivo-filiado-cppem
      aba UNICIVE_Novo captura-unicive
      aba COLEGIO_Novo captura-colegio
      aba IGNORADOS    operacao-alvorada, apostila, e qualquer origem
@@ -92,8 +93,9 @@ const ORIGENS = {
   PMPE_COMUNIDADE:     "CPPEM",   // exit popup do pmpe
   MANYCHAT:            "CPPEM",   // captura-manychat-pmpe
   MANYCHAT_ANTIGO:     "CPPEM",   // aba antiga do manychat
-  INDIVIDUAL:          "CPPEM",   // mentoria-individual
-  CASA:                "CPPEM",   // presencial-em-casa
+  INDIVIDUAL:          "CPPEM",   // mentoria-individual     (individual.cppem.com.br)
+  CASA:                "CPPEM",   // presencial-em-casa      (presencialemcasa.cppem.com.br)
+  SUPLETIVO:           "CPPEM",   // supletivo-filiado-cppem
 
   // → aba UNICIVE_Novo
   UNICIVE:             "UNICIVE", // captura-unicive (contato.unicive.cppem.com.br)
@@ -110,20 +112,24 @@ const ORIGENS = {
    e operacaoalvorada.cppem.com.br entrarem rotulados como CPPEM.
 
    As duas últimas apontam para chaves que NÃO estão em ORIGENS: é assim que a
-   URL barra o lead mesmo quando o site manda um ?aba= permitido.
-
-   mentoria-individual e presencial-em-casa não estão aqui porque não achei o
-   domínio de produção deles nos repositórios — eles dependem só do ?aba=
-   (INDIVIDUAL e CASA). Se você me passar os domínios, eu acrescento. */
+   URL barra o lead mesmo quando o site manda um ?aba= permitido. */
 const DOMINIOS = [
-  { teste: /\/\/contato\.unicive\.cppem\.com\.br/i,   chave: "UNICIVE" },
-  { teste: /\/\/pmpe\.cppem\.com\.br/i,               chave: "PMPE" },
-  { teste: /\/\/colegio[a-z0-9.-]*\.cppem\.com\.br/i, chave: "COLEGIO" },
-  { teste: /\/\/contato\.cppem\.com\.br/i,            chave: "CPPEM" },
+  { teste: /\/\/contato\.unicive\.cppem\.com\.br/i,     chave: "UNICIVE" },
+  { teste: /\/\/pmpe\.cppem\.com\.br/i,                 chave: "PMPE" },
+  { teste: /\/\/colegio[a-z0-9.-]*\.cppem\.com\.br/i,   chave: "COLEGIO" },
+  { teste: /\/\/contato\.cppem\.com\.br/i,              chave: "CPPEM" },
+  { teste: /\/\/individual\.cppem\.com\.br/i,           chave: "INDIVIDUAL" },
+  { teste: /\/\/presencialemcasa\.cppem\.com\.br/i,     chave: "CASA" },
+
+  /* O supletivo ainda aparece pelo domínio da Vercel em alguns links (é para
+     lá que o captura-unicive manda quem não tem Ensino Médio), então os dois
+     endereços contam. */
+  { teste: /\/\/supletivo[a-z0-9.-]*\.cppem\.com\.br/i, chave: "SUPLETIVO" },
+  { teste: /\/\/cppem-supletivo-filiado\.vercel\.app/i, chave: "SUPLETIVO" },
 
   // Reconhecidos para poder BARRAR:
-  { teste: /\/\/apostila\.cppem\.com\.br/i,           chave: "APOSTILA" },
-  { teste: /\/\/operacaoalvorada\.cppem\.com\.br/i,   chave: "OPERACAO" }
+  { teste: /\/\/apostila\.cppem\.com\.br/i,             chave: "APOSTILA" },
+  { teste: /\/\/operacaoalvorada\.cppem\.com\.br/i,     chave: "OPERACAO" }
 ];
 
 /* A campanha também identifica a origem, e às vezes é o único sinal: o mesmo
