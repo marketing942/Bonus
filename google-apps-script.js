@@ -89,6 +89,18 @@ const DOMINIOS = [
 /* ---------- ENTRADA ---------- */
 
 function doPost(e) {
+  /* O editor do Apps Script deixa `doPost` pré-selecionado no menu de execução,
+     por ser a primeira função do arquivo. Clicar em "Executar" sem trocar roda
+     ISTO, sem requisição nenhuma — e antes disso gravava uma linha vazia na aba
+     IGNORADOS, parecendo que "nada aconteceu". */
+  if (!e || !e.postData) {
+    Logger.log(
+      "doPost só roda por requisição do site. Para tarefas manuais, escolha no " +
+      "menu: conferirPlanilha, prepararAba ou migrarAbasParaCPPEM."
+    );
+    return json({ status: "erro", mensagem: "sem requisição" });
+  }
+
   const lock = LockService.getScriptLock();
   let locked = false;
 
@@ -491,18 +503,46 @@ function migrarAbasParaCPPEM() {
   const novas = [];
   let puladas = 0;
 
+  /* Comparação tolerante: nome de aba costuma vir com espaço sobrando ou caixa
+     diferente do que se digitou na lista. */
+  const naLista = function (nome) {
+    if (!ABAS_PARA_MIGRAR.length) return true;
+    const alvo = String(nome).trim().toLowerCase();
+    return ABAS_PARA_MIGRAR.some(function (n) {
+      return String(n).trim().toLowerCase() === alvo;
+    });
+  };
+
+  Logger.log("Abas encontradas: %s",
+             ss.getSheets().map(function (a) { return '"' + a.getName() + '"'; }).join(", "));
+  Logger.log("ABAS_PARA_MIGRAR: %s",
+             ABAS_PARA_MIGRAR.length ? ABAS_PARA_MIGRAR.join(", ") : "(vazia = todas)");
+
   ss.getSheets().forEach(function (aba) {
     const nome = aba.getName();
 
-    if (nome === ABA_DESTINO || nome === ABA_IGNORADOS) return;
-    if (/^MIGRADA_/i.test(nome)) return;
-    if (aba.getLastRow() < 2) return;
-
-    if (ABAS_PARA_MIGRAR.length && ABAS_PARA_MIGRAR.indexOf(nome) === -1) return;
+    /* Cada aba diz por que ficou de fora. Sem isso, "não aconteceu nada" não
+       tem como ser diagnosticado sem adivinhação. */
+    if (nome === ABA_DESTINO || nome === ABA_IGNORADOS) {
+      Logger.log('  "%s": pulada (é a aba de destino ou a de ignorados).', nome);
+      return;
+    }
+    if (/^MIGRADA_/i.test(nome)) {
+      Logger.log('  "%s": pulada (já migrada antes).', nome);
+      return;
+    }
+    if (!naLista(nome)) {
+      Logger.log('  "%s": pulada (fora de ABAS_PARA_MIGRAR).', nome);
+      return;
+    }
+    if (aba.getLastRow() < 2) {
+      Logger.log('  "%s": pulada (sem linhas de dados).', nome);
+      return;
+    }
 
     const mapaOrigem = mapaColunas(aba);
     if (mapaOrigem.nome === undefined && mapaOrigem.email === undefined) {
-      Logger.log('Aba "%s" ignorada: não parece uma aba de leads.', nome);
+      Logger.log('  "%s": pulada (cabeçalho sem Nome nem Email — não parece aba de leads).', nome);
       return;
     }
 
@@ -549,12 +589,15 @@ function migrarAbasParaCPPEM() {
 
     if (migradasAqui > 0) {
       aba.setName("MIGRADA_" + nome);
-      Logger.log('Aba "%s": %s linhas migradas.', nome, migradasAqui);
+      Logger.log('  "%s": %s linhas migradas (aba renomeada para MIGRADA_%s).',
+                 nome, migradasAqui, nome);
+    } else {
+      Logger.log('  "%s": nenhuma linha aproveitada — todas de origem não permitida.', nome);
     }
   });
 
   if (!novas.length) {
-    Logger.log("Nada a migrar. (%s linhas puladas por origem não permitida.)", puladas);
+    Logger.log("RESULTADO: nada migrado. %s linhas puladas por origem não permitida.", puladas);
     return;
   }
 
@@ -575,7 +618,7 @@ function migrarAbasParaCPPEM() {
       }));
   });
 
-  Logger.log("%s linhas migradas para %s. %s puladas (origem não permitida).",
+  Logger.log("RESULTADO: %s linhas migradas para %s. %s puladas (origem não permitida).",
              novas.length, ABA_DESTINO, puladas);
 }
 
