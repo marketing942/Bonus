@@ -1,65 +1,83 @@
 /* =========================================================
    CPPEM — Backend único de captura (Google Apps Script)
-   Todos os projetos (CPPEM, UNICIVE, PMPE, COLEGIO, ...) gravam
-   na MESMA aba. A identificação de quem enviou vem na coluna "Origem".
+
+   Todos os projetos gravam na MESMA aba: CPPEM.
+
+   A escrita é feita POR NOME DE COLUNA, lendo o cabeçalho da aba — nunca por
+   posição fixa. É o que permite conviver com a coluna VENDEDOR, preenchida à
+   mão: o script só escreve nas colunas que conhece, e qualquer coluna que ele
+   não conheça fica intocada. Mudar a ordem das colunas na planilha também não
+   quebra nada.
 
    Como publicar:
    1) Planilha → Extensões → Apps Script → cole ESTE arquivo inteiro
       (substituindo o Codigo.gs antigo) e salve.
    2) Implantar → Gerenciar implantações → editar a implantação atual
-      → Versão: Nova versão → Implantar.
-      (Editar a implantação EXISTENTE mantém a mesma URL /exec, então
-       nenhum site precisa mudar de endereço.)
-   3) Executar uma vez a função `configurarPlanilha` (autoriza e cria a aba).
-   4) Opcional: executar `migrarAbasAntigasParaLEADS` para trazer o
-      histórico das abas antigas para a aba LEADS.
+      → Versão: Nova versão → Implantar. A URL /exec não muda.
+   3) Rodar `conferirPlanilha` — NÃO altera nada, só mostra no log em qual
+      coluna cada campo vai cair. Confira antes de seguir.
+   4) Rodar `prepararAba` — formata as colunas de texto (mata o #ERROR! do
+      telefone) e congela o cabeçalho. Não mexe em valor nenhum.
+   5) Opcional: `migrarAbasParaCPPEM` traz o histórico das outras abas.
    ========================================================= */
 
 /* ---------- CONFIGURAÇÃO ---------- */
 
-const ABA_DESTINO = "MarkTeste"; // aba única de destino (todas as origens gravam aqui)
+const ABA_DESTINO = "CPPEM";
+
+/* Rede de segurança: origem desconhecida ou bloqueada não é descartada — cai
+   aqui, para nada se perder por um ?aba= errado num site novo. */
+const ABA_IGNORADOS = "IGNORADOS";
+
 const FUSO = "America/Recife";
 
-/* Colunas da aba única. A ordem daqui manda em tudo (cabeçalho, escrita e
-   migração) — para acrescentar um campo, basta incluir aqui e no
-   `montarLinha`. */
-const COLUNAS = [
-  { titulo: "Data e Hora",  largura: 160, formato: "dd/MM/yyyy HH:mm:ss" },
-  { titulo: "Origem",       largura: 120, formato: "@" },
-  { titulo: "Nome",         largura: 220, formato: "@" },
-  { titulo: "Email",        largura: 250, formato: "@" },
-  { titulo: "Telefone",     largura: 180, formato: "@" },
-  { titulo: "Pagina URL",   largura: 320, formato: "@" },
-  { titulo: "UTM Source",   largura: 150, formato: "@" },
-  { titulo: "UTM Campaign", largura: 220, formato: "@" }
+/* Campos que o script sabe preencher. `titulos` são os nomes de cabeçalho
+   aceitos (minúsculos, sem depender de acento na comparação). O primeiro é o
+   usado ao criar uma aba do zero. */
+const CAMPOS = [
+  { chave: "data",         titulos: ["data e hora", "data"],                                  formato: "dd/MM/yyyy HH:mm:ss" },
+  { chave: "origem",       titulos: ["origem"],                                               formato: "@" },
+  { chave: "nome",         titulos: ["nome"],                                                 formato: "@" },
+  { chave: "email",        titulos: ["email", "e-mail"],                                      formato: "@" },
+  { chave: "telefone",     titulos: ["telefone", "whatsapp", "celular"],                      formato: "@" },
+  { chave: "url",          titulos: ["pagina url", "página url", "pagina", "página", "url"],  formato: "@" },
+  { chave: "utm_source",   titulos: ["utm source", "utm_source"],                             formato: "@" },
+  { chave: "utm_campaign", titulos: ["utm campaign", "utm_campaign"],                         formato: "@" }
 ];
 
-/* De onde veio o lead: chave = o que chega em ?aba= (ou ?origem=) na URL do
-   /exec, valor = o que aparece na coluna "Origem". Mantive os nomes antigos
-   das abas como chave para que NENHUM site quebre enquanto os fronts não
-   forem atualizados — CAPTURA e MANYCHAT são apelidos históricos de CPPEM e
-   PMPE, e os "_COMUNIDADE" (exit popup) contam como a própria unidade. */
+/* Quem pode gravar na aba principal. Chave = o que chega em ?aba= (ou
+   ?origem=); valor = o rótulo da coluna Origem, se a aba tiver essa coluna.
+
+   Quem NÃO está aqui vai para a aba IGNORADOS — é assim que a Operação
+   Alvorada (venda direta, planilha própria via n8n) fica fora daqui. */
 const ORIGENS = {
-  CPPEM:              "CPPEM",
-  CAPTURA:            "CPPEM",
-  CAPTURA_COMUNIDADE: "CPPEM",
-  UNICIVE:            "UNICIVE",
-  UNICIVE_COMUNIDADE: "UNICIVE",
-  PMPE:               "PMPE",
-  MANYCHAT:           "PMPE",
-  COLEGIO:            "COLEGIO",
-  FARDA:              "FARDA",
-  SUPLETIVO:          "SUPLETIVO",
-  CASA:               "CASA"
+  CPPEM:                "CPPEM",
+  CAPTURA:              "CPPEM",
+  CAPTURA_COMUNIDADE:   "CPPEM",
+  UNICIVE:              "UNICIVE",
+  UNICIVE_COMUNIDADE:   "UNICIVE",
+  PMPE:                 "PMPE",
+  PMPE_COMUNIDADE:      "PMPE",
+  MANYCHAT:             "PMPE",
+  MANYCHAT_ANTIGO:      "PMPE",
+  COLEGIO:              "COLEGIO",
+  APOSTILA:             "APOSTILA",
+  APOSTILA_PMPE:        "APOSTILA",
+  APOSTILA_COMUNIDADE:  "APOSTILA"
 };
 
-/* Rede de segurança: se um site esquecer o ?aba= e o payload não trouxer
-   origem, tenta deduzir pelo domínio da página. */
+/* Dedução pela URL, para quando o ?aba= vier errado ou faltar.
+
+   Ancorado no host EXATO de propósito: o padrão antigo era /cppem/i, que casa
+   com qualquer subdomínio — foi ele que fez os leads de apostila.cppem.com.br
+   e operacaoalvorada.cppem.com.br entrarem rotulados como CPPEM. */
 const DOMINIOS = [
-  { teste: /unicv|unicive/i,         chave: "UNICIVE" },
-  { teste: /colegio/i,               chave: "COLEGIO" },
-  { teste: /pmpe|manychat/i,         chave: "PMPE" },
-  { teste: /contato\.cppem|cppem/i,  chave: "CPPEM" }
+  { teste: /\/\/contato\.unicive\.cppem\.com\.br/i, chave: "UNICIVE" },
+  { teste: /\/\/pmpe\.cppem\.com\.br/i,             chave: "PMPE" },
+  { teste: /\/\/colegio[a-z0-9.-]*\.cppem\.com\.br/i, chave: "COLEGIO" },
+  { teste: /\/\/apostila\.cppem\.com\.br/i,         chave: "APOSTILA" },
+  { teste: /\/\/contato\.cppem\.com\.br/i,          chave: "CPPEM" },
+  { teste: /\/\/operacaoalvorada\.cppem\.com\.br/i, chave: "OPERACAO" }
 ];
 
 /* ---------- ENTRADA ---------- */
@@ -74,13 +92,19 @@ function doPost(e) {
 
     const dados = JSON.parse((e && e.postData && e.postData.contents) || "{}");
     const params = (e && e.parameter) || {};
+    const lead = montarLead(dados, params);
 
-    const planilha = obterAba();
-    const linha = montarLinha(dados, params);
+    const planilha = lead.permitida
+      ? obterAba(ABA_DESTINO)
+      : obterAba(ABA_IGNORADOS);
 
-    escreverLinha(planilha, linha);
+    escreverLead(planilha, lead.valores);
 
-    return json({ status: "ok", aba: ABA_DESTINO, origem: linha[1] });
+    return json({
+      status: lead.permitida ? "ok" : "ignorado",
+      aba: planilha.getName(),
+      origem: lead.valores.origem
+    });
 
   } catch (err) {
     return json({ status: "erro", mensagem: err.message });
@@ -96,35 +120,38 @@ function doGet() {
   );
 }
 
-/* ---------- MONTAGEM DA LINHA ---------- */
+/* ---------- MONTAGEM DO LEAD ---------- */
 
-/* Aceita os nomes de campo de TODOS os fronts atuais. O captura-unicive manda
-   name/phone; os outros mandam nome/telefone e `pagina` em vez de
-   `pagina_url`. Em vez de exigir que os quatro sites mudem no mesmo dia, o
-   backend entende os dois dialetos. */
-function montarLinha(dados, params) {
+/* Aceita os nomes de campo de TODOS os fronts. O captura-unicive manda
+   name/phone; os outros mandam nome/telefone, e alguns mandam `pagina` em vez
+   de `pagina_url`. O backend entende os dois dialetos para não depender de os
+   sites serem atualizados no mesmo dia. */
+function montarLead(dados, params) {
   const chave = normalizarChave(
     params.aba || params.origem || dados.aba || dados.origem || ""
   );
 
-  const paginaUrl = pegar(dados, ["pagina_url", "pagina", "page_url", "url"]);
+  const url = pegar(dados, ["pagina_url", "pagina", "page_url", "url"]);
 
-  const origem =
-    ORIGENS[chave] ||
-    ORIGENS[deduzirPorUrl(paginaUrl)] ||
-    chave ||
-    "DESCONHECIDA";
+  /* A URL tem a última palavra sobre a origem: ela é o fato, o ?aba= é o que o
+     site diz de si mesmo. É o que corrige um site novo copiado de outro que
+     esqueceu de trocar o parâmetro. */
+  const porUrl = deduzirPorUrl(url);
+  const origem = ORIGENS[porUrl] || ORIGENS[chave] || "";
 
-  return [
-    new Date(),
-    origem,
-    pegar(dados, ["nome", "name", "nome_completo"]),
-    pegar(dados, ["email", "e-mail", "mail"]),
-    telefoneTexto(pegar(dados, ["telefone", "phone", "whatsapp", "celular", "phone_e164"])),
-    paginaUrl,
-    pegar(dados, ["utm_source", "utmSource"]),
-    pegar(dados, ["utm_campaign", "utmCampaign"])
-  ];
+  return {
+    permitida: origem !== "",
+    valores: {
+      data: new Date(),
+      origem: origem || porUrl || chave || "DESCONHECIDA",
+      nome: pegar(dados, ["nome", "name", "nome_completo"]),
+      email: pegar(dados, ["email", "e-mail", "mail"]),
+      telefone: telefoneTexto(pegar(dados, ["telefone", "phone", "whatsapp", "celular", "phone_e164"])),
+      url: url,
+      utm_source: pegar(dados, ["utm_source", "utmSource"]),
+      utm_campaign: pegar(dados, ["utm_campaign", "utmCampaign"])
+    }
+  };
 }
 
 function pegar(obj, chaves) {
@@ -150,20 +177,17 @@ function deduzirPorUrl(url) {
 }
 
 /* O telefone chega da máscara da PixelX como "+55 81 9 9996-7415". O "+" no
-   começo faz o Sheets tentar interpretar a célula como fórmula — daí o
-   #ERROR!. Duas travas contra isso:
-   1) a coluna inteira é formatada como texto ("@") em `configurarAba`, e a
-      linha nova recebe o formato ANTES de receber o valor (`escreverLinha`);
-   2) aqui o número é normalizado para um formato estável e sem "+" inicial —
-      então, mesmo que alguém apague a formatação da coluna à mão, o valor
-      continua sendo texto simples e legível. */
+   começo faz o Sheets interpretar a célula como fórmula — é a origem dos
+   #ERROR! que já existem na planilha. Duas travas:
+   1) a célula recebe formato de texto ANTES do valor (ver `escreverLead`);
+   2) o número é normalizado sem o "+" inicial, então continua legível mesmo
+      se alguém limpar a formatação da coluna à mão. */
 function telefoneTexto(valor) {
   if (!valor) return "";
 
   const digitos = String(valor).replace(/\D/g, "");
   if (!digitos) return "";
 
-  // 55 + DDD + 8 ou 9 dígitos → "55 81 99996-7415"
   const br = digitos.replace(/^0+/, "").replace(/^55/, "");
 
   if (br.length === 10 || br.length === 11) {
@@ -175,45 +199,90 @@ function telefoneTexto(valor) {
     return "55 " + ddd + " " + meio + "-" + fim;
   }
 
-  return digitos; // fora do padrão: guarda cru, mas sem "+"
+  return digitos;
+}
+
+/* ---------- COLUNAS (o coração da coisa) ---------- */
+
+/* Descobre em que coluna cada campo mora, lendo o cabeçalho da aba.
+   Devolve { chave: indice0 }. Campo sem coluna correspondente fica de fora e
+   simplesmente não é escrito — é o caso de "origem" na aba CPPEM hoje. */
+function mapaColunas(planilha) {
+  const largura = Math.max(planilha.getLastColumn(), 1);
+  const cabecalho = planilha
+    .getRange(1, 1, 1, largura)
+    .getValues()[0]
+    .map(function (t) { return normalizarTitulo(t); });
+
+  const mapa = {};
+
+  CAMPOS.forEach(function (campo) {
+    for (let i = 0; i < campo.titulos.length; i++) {
+      const pos = cabecalho.indexOf(normalizarTitulo(campo.titulos[i]));
+      if (pos >= 0) {
+        mapa[campo.chave] = pos;
+        return;
+      }
+    }
+  });
+
+  return mapa;
+}
+
+/* Compara títulos ignorando caixa, espaços extras e acento — "Página URL",
+   "Pagina URL" e "PÁGINA  URL" são a mesma coluna. */
+function normalizarTitulo(t) {
+  return String(t)
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "") // tira os acentos separados pelo NFD
+    .replace(/\s+/g, " ");
 }
 
 /* ---------- ESCRITA ---------- */
 
-/* Não usa appendRow de propósito: o formato precisa estar aplicado ANTES do
-   valor entrar, senão o Sheets já converte "+55..." em fórmula na escrita. */
-function escreverLinha(planilha, valores) {
-  const linha = Math.max(planilha.getLastRow(), 1) + 1;
-  const range = planilha.getRange(linha, 1, 1, COLUNAS.length);
+function escreverLead(planilha, valores) {
+  const mapa = mapaColunas(planilha);
+  const largura = Math.max(planilha.getLastColumn(), 1);
+  const linha = planilha.getLastRow() + 1;
 
-  range.setNumberFormats([COLUNAS.map(function (c) { return c.formato; })]);
-  range.setValues([valores]);
+  /* Linha nova, largura inteira: as colunas que o script não conhece recebem
+     "" — o que não apaga nada, porque numa linha nova elas estão vazias de
+     qualquer jeito. VENDEDOR entra em branco, para o vendedor preencher. */
+  const celulas = new Array(largura).fill("");
+
+  CAMPOS.forEach(function (campo) {
+    const col = mapa[campo.chave];
+    if (col === undefined) return;
+
+    celulas[col] = valores[campo.chave];
+
+    // Formato ANTES do valor: depois já é tarde, o Sheets converteu na escrita.
+    planilha.getRange(linha, col + 1).setNumberFormat(campo.formato);
+  });
+
+  planilha.getRange(linha, 1, 1, largura).setValues([celulas]);
 }
 
-function obterAba() {
+function obterAba(nome) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let planilha = ss.getSheetByName(ABA_DESTINO);
+  let planilha = ss.getSheetByName(nome);
 
   if (!planilha) {
-    planilha = ss.insertSheet(ABA_DESTINO);
-    configurarAba(planilha);
+    planilha = ss.insertSheet(nome);
+    criarCabecalho(planilha);
   } else if (planilha.getLastRow() === 0) {
-    configurarAba(planilha);
+    criarCabecalho(planilha);
   }
 
   return planilha;
 }
 
-/* ---------- SETUP (rodar à mão, uma vez) ---------- */
-
-function configurarPlanilha() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  ss.setSpreadsheetTimeZone(FUSO);
-  configurarAba(obterAba());
-}
-
-function configurarAba(planilha) {
-  const titulos = COLUNAS.map(function (c) { return c.titulo; });
+/* Só roda em aba nova/vazia. A aba CPPEM já existe e tem cabeçalho próprio —
+   este código nunca vai reescrevê-lo. */
+function criarCabecalho(planilha) {
+  const titulos = CAMPOS.map(function (c) { return titulo(c.titulos[0]); });
 
   const h = planilha.getRange(1, 1, 1, titulos.length);
   h.setValues([titulos]);
@@ -221,98 +290,327 @@ function configurarAba(planilha) {
   h.setBackground("#00E63C");
   h.setFontColor("#0A0A0A");
 
-  COLUNAS.forEach(function (c, i) {
-    planilha.setColumnWidth(i + 1, c.largura);
-
-    // Formata a coluna inteira, não só o cabeçalho: assim a digitação manual
-    // de um telefone também fica protegida do "+" virar fórmula.
-    planilha
-      .getRange(2, i + 1, Math.max(planilha.getMaxRows() - 1, 1), 1)
-      .setNumberFormat(c.formato);
-  });
-
   planilha.setFrozenRows(1);
 }
 
-/* ---------- MIGRAÇÃO DO HISTÓRICO (rodar à mão, uma vez) ---------- */
+function titulo(t) {
+  return t.replace(/(^|\s)\S/g, function (c) { return c.toUpperCase(); });
+}
 
-/* Lê as abas antigas, casa as colunas pelo NOME do cabeçalho (as abas não
-   tinham todas o mesmo layout) e joga tudo na aba LEADS, com Origem/Página
-   preenchidas a partir do nome da aba. As abas antigas NÃO são apagadas —
-   confira o resultado e remova à mão depois. */
-function migrarAbasAntigasParaLEADS() {
+/* ---------- DIAGNÓSTICO (rodar à mão; não altera nada) ---------- */
+
+function conferirPlanilha() {
+  const planilha = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_DESTINO);
+
+  if (!planilha) {
+    Logger.log('Aba "%s" não existe.', ABA_DESTINO);
+    return;
+  }
+
+  const largura = planilha.getLastColumn();
+  const cabecalho = planilha.getRange(1, 1, 1, largura).getValues()[0];
+  const mapa = mapaColunas(planilha);
+
+  Logger.log('Aba "%s": %s linhas, %s colunas', ABA_DESTINO, planilha.getLastRow(), largura);
+  Logger.log("Cabeçalho: %s", cabecalho.join(" | "));
+
+  CAMPOS.forEach(function (campo) {
+    const col = mapa[campo.chave];
+    Logger.log(
+      "  %s -> %s",
+      campo.chave,
+      col === undefined
+        ? "SEM COLUNA (não será preenchido)"
+        : "coluna " + letraColuna(col + 1) + ' ("' + cabecalho[col] + '")'
+    );
+  });
+
+  const naoTocadas = [];
+  cabecalho.forEach(function (t, i) {
+    const usada = Object.keys(mapa).some(function (k) { return mapa[k] === i; });
+    if (!usada && String(t).trim()) naoTocadas.push(t);
+  });
+
+  Logger.log("Colunas que o script NÃO toca: %s", naoTocadas.join(", ") || "(nenhuma)");
+}
+
+function letraColuna(n) {
+  let s = "";
+  while (n > 0) {
+    const r = (n - 1) % 26;
+    s = String.fromCharCode(65 + r) + s;
+    n = Math.floor((n - r) / 26);
+  }
+  return s;
+}
+
+/* ---------- PREPARO (rodar à mão, uma vez) ---------- */
+
+/* Formata as colunas conhecidas e congela o cabeçalho. Não escreve nem apaga
+   valor nenhum — só formato. Isso é o que impede novos #ERROR! no telefone,
+   inclusive em digitação manual. */
+function prepararAba() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const destino = obterAba();
-  const linhas = [];
+  ss.setSpreadsheetTimeZone(FUSO);
+
+  const planilha = ss.getSheetByName(ABA_DESTINO);
+  if (!planilha) throw new Error('Aba "' + ABA_DESTINO + '" não existe.');
+
+  const mapa = mapaColunas(planilha);
+  const linhas = Math.max(planilha.getMaxRows() - 1, 1);
+
+  CAMPOS.forEach(function (campo) {
+    const col = mapa[campo.chave];
+    if (col === undefined) return;
+    planilha.getRange(2, col + 1, linhas, 1).setNumberFormat(campo.formato);
+  });
+
+  planilha.setFrozenRows(1);
+  Logger.log("Formatos aplicados na aba %s.", ABA_DESTINO);
+}
+
+/* Opcional: cria a coluna Origem como B, empurrando o resto para a direita
+   (VENDEDOR incluída — os dados andam junto com a coluna, nada desalinha).
+   Depois disso, todo lead novo já entra com a origem preenchida, e o
+   `migrarAbasParaCPPEM` também preenche a das linhas migradas. */
+function adicionarColunaOrigem() {
+  const planilha = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_DESTINO);
+  if (!planilha) throw new Error('Aba "' + ABA_DESTINO + '" não existe.');
+
+  if (mapaColunas(planilha).origem !== undefined) {
+    Logger.log("A coluna Origem já existe. Nada a fazer.");
+    return;
+  }
+
+  planilha.insertColumnAfter(1);
+
+  const c = planilha.getRange(1, 2);
+  c.setValue("Origem");
+  c.setFontWeight("bold");
+  c.setBackground("#00E63C");
+  c.setFontColor("#0A0A0A");
+
+  planilha.setColumnWidth(2, 120);
+  planilha.getRange(2, 2, Math.max(planilha.getMaxRows() - 1, 1), 1).setNumberFormat("@");
+
+  Logger.log("Coluna Origem criada. Rode preencherOrigemPelaUrl para completar o histórico.");
+}
+
+/* Preenche a coluna Origem das linhas antigas deduzindo pela URL. Só escreve
+   onde está vazio — não sobrescreve nada que já tenha valor. */
+function preencherOrigemPelaUrl() {
+  const planilha = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_DESTINO);
+  const mapa = mapaColunas(planilha);
+
+  if (mapa.origem === undefined) throw new Error("A aba não tem coluna Origem. Rode adicionarColunaOrigem antes.");
+  if (mapa.url === undefined) throw new Error("A aba não tem coluna de URL.");
+
+  const total = planilha.getLastRow() - 1;
+  if (total < 1) return;
+
+  const origens = planilha.getRange(2, mapa.origem + 1, total, 1).getValues();
+  const urls = planilha.getRange(2, mapa.url + 1, total, 1).getValues();
+
+  let preenchidas = 0;
+
+  for (let i = 0; i < total; i++) {
+    if (String(origens[i][0]).trim() !== "") continue;
+
+    const chave = deduzirPorUrl(String(urls[i][0]));
+    const origem = ORIGENS[chave] || chave;
+
+    if (origem) {
+      origens[i][0] = origem;
+      preenchidas++;
+    }
+  }
+
+  planilha.getRange(2, mapa.origem + 1, total, 1).setValues(origens);
+  Logger.log("Origem preenchida em %s linhas.", preenchidas);
+}
+
+/* ---------- MIGRAÇÃO DAS OUTRAS ABAS (rodar à mão) ---------- */
+
+/* Traz o histórico das outras abas para a aba CPPEM, casando as colunas pelo
+   NOME do cabeçalho (as abas antigas têm layouts diferentes entre si).
+
+   Regras:
+   - a origem de cada linha sai da própria coluna Origem, se a aba tiver uma
+     (é o caso da aba de teste); senão, do nome da aba;
+   - a URL tem a última palavra, o que reclassifica o que estava errado;
+   - linha de origem não permitida (Operação Alvorada, lixo de teste) é
+     PULADA, não migrada — e contada no log;
+   - a aba de origem NÃO é apagada. Depois de conferir, ela é renomeada para
+     "MIGRADA_<nome>", o que também impede migrar duas vezes por engano. */
+function migrarAbasParaCPPEM() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const destino = obterAba(ABA_DESTINO);
+  const mapaDestino = mapaColunas(destino);
+  const largura = Math.max(destino.getLastColumn(), 1);
+
+  const novas = [];
+  let puladas = 0;
 
   ss.getSheets().forEach(function (aba) {
     const nome = aba.getName();
-    if (nome === ABA_DESTINO) return;
+
+    if (nome === ABA_DESTINO || nome === ABA_IGNORADOS) return;
+    if (/^MIGRADA_/i.test(nome)) return;
     if (aba.getLastRow() < 2) return;
 
-    const origem = ORIGENS[normalizarChave(nome)] || normalizarChave(nome);
+    const mapaOrigem = mapaColunas(aba);
+    if (mapaOrigem.nome === undefined && mapaOrigem.email === undefined) {
+      Logger.log('Aba "%s" ignorada: não parece uma aba de leads.', nome);
+      return;
+    }
 
     const tabela = aba.getRange(1, 1, aba.getLastRow(), aba.getLastColumn()).getValues();
-    const cab = tabela[0].map(function (t) { return String(t).trim().toLowerCase(); });
-
-    const idx = function (nomes) {
-      for (let i = 0; i < nomes.length; i++) {
-        const p = cab.indexOf(nomes[i]);
-        if (p >= 0) return p;
-      }
-      return -1;
-    };
-
-    const cData = idx(["data e hora", "data", "data_envio"]);
-    const cNome = idx(["nome", "name"]);
-    const cMail = idx(["e-mail", "email"]);
-    const cTel  = idx(["telefone", "phone", "whatsapp"]);
-    const cUrl  = idx(["página url", "pagina url", "pagina_url", "página", "pagina"]);
-    const cSrc  = idx(["utm source", "utm_source"]);
-    const cCamp = idx(["utm campaign", "utm_campaign"]);
-
-    const val = function (linha, c) { return c >= 0 ? String(linha[c] || "").trim() : ""; };
+    const chaveDaAba = normalizarChave(nome);
+    let migradasAqui = 0;
 
     for (let i = 1; i < tabela.length; i++) {
       const l = tabela[i];
       if (!l.join("").trim()) continue;
 
-      linhas.push([
-        cData >= 0 ? (l[cData] instanceof Date ? l[cData] : parsarData(l[cData])) : "",
-        origem,
-        val(l, cNome),
-        val(l, cMail),
-        telefoneTexto(val(l, cTel)),
-        val(l, cUrl),
-        val(l, cSrc),
-        val(l, cCamp)
-      ]);
+      const valor = function (chave) {
+        const col = mapaOrigem[chave];
+        return col === undefined ? "" : String(l[col] || "").trim();
+      };
+
+      const url = valor("url");
+      const porUrl = deduzirPorUrl(url);
+      const daLinha = normalizarChave(valor("origem"));
+      const origem = ORIGENS[porUrl] || ORIGENS[daLinha] || ORIGENS[chaveDaAba] || "";
+
+      if (!origem) {
+        puladas++;
+        continue;
+      }
+
+      const celulas = new Array(largura).fill("");
+      const dados = {
+        data: converterData(mapaOrigem.data === undefined ? "" : l[mapaOrigem.data]),
+        origem: origem,
+        nome: valor("nome"),
+        email: valor("email"),
+        telefone: telefoneTexto(valor("telefone")),
+        url: url,
+        utm_source: valor("utm_source"),
+        utm_campaign: valor("utm_campaign")
+      };
+
+      CAMPOS.forEach(function (campo) {
+        const col = mapaDestino[campo.chave];
+        if (col !== undefined) celulas[col] = dados[campo.chave];
+      });
+
+      novas.push(celulas);
+      migradasAqui++;
+    }
+
+    if (migradasAqui > 0) {
+      aba.setName("MIGRADA_" + nome);
+      Logger.log('Aba "%s": %s linhas migradas.', nome, migradasAqui);
     }
   });
 
-  if (!linhas.length) return;
+  if (!novas.length) {
+    Logger.log("Nada a migrar. (%s linhas puladas por origem não permitida.)", puladas);
+    return;
+  }
 
-  // Ordena por data para o histórico consolidado fazer sentido na leitura.
-  linhas.sort(function (a, b) {
-    const ta = a[0] instanceof Date ? a[0].getTime() : 0;
-    const tb = b[0] instanceof Date ? b[0].getTime() : 0;
-    return ta - tb;
+  const inicio = destino.getLastRow() + 1;
+  const range = destino.getRange(inicio, 1, novas.length, largura);
+
+  CAMPOS.forEach(function (campo) {
+    const col = mapaDestino[campo.chave];
+    if (col !== undefined) {
+      destino.getRange(inicio, col + 1, novas.length, 1).setNumberFormat(campo.formato);
+    }
   });
 
-  const inicio = Math.max(destino.getLastRow(), 1) + 1;
-  const range = destino.getRange(inicio, 1, linhas.length, COLUNAS.length);
-  const formatos = COLUNAS.map(function (c) { return c.formato; });
+  range.setValues(novas);
 
-  range.setNumberFormats(linhas.map(function () { return formatos; }));
-  range.setValues(linhas);
+  Logger.log("%s linhas migradas para %s. %s puladas (origem não permitida).",
+             novas.length, ABA_DESTINO, puladas);
 }
 
 /* As abas antigas gravavam a data como TEXTO "dd/MM/yyyy HH:mm:ss". */
-function parsarData(v) {
-  const m = String(v || "").match(/^(\d{2})\/(\d{2})\/(\d{4})[ ,]+(\d{2}):(\d{2}):(\d{2})/);
+function converterData(v) {
+  if (v instanceof Date) return v;
+
+  const m = String(v || "").match(/^(\d{2})\/(\d{2})\/(\d{4})[ ,]+(\d{2}):(\d{2})(?::(\d{2}))?/);
   if (!m) return String(v || "");
 
-  return new Date(+m[3], +m[2] - 1, +m[1], +m[4], +m[5], +m[6]);
+  return new Date(+m[3], +m[2] - 1, +m[1], +m[4], +m[5], +(m[6] || 0));
+}
+
+/* ---------- LIMPEZA (rodar à mão) ---------- */
+
+/* Tira da aba principal o que não deveria estar lá — leads da Operação
+   Alvorada que entraram antes do bloqueio, linhas de teste, origem
+   desconhecida.
+
+   Nada é apagado: as linhas são COPIADAS para a aba REMOVIDOS antes de saírem
+   daqui. Se algo for removido por engano, está lá para voltar. */
+function arquivarNaoPermitidos() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const planilha = ss.getSheetByName(ABA_DESTINO);
+  if (!planilha) throw new Error('Aba "' + ABA_DESTINO + '" não existe.');
+
+  const mapa = mapaColunas(planilha);
+  const largura = Math.max(planilha.getLastColumn(), 1);
+  const total = planilha.getLastRow() - 1;
+  if (total < 1) return;
+
+  const tabela = planilha.getRange(2, 1, total, largura).getValues();
+  const remover = [];
+
+  for (let i = 0; i < tabela.length; i++) {
+    const l = tabela[i];
+    if (!l.join("").trim()) continue;
+
+    const valor = function (chave) {
+      const col = mapa[chave];
+      return col === undefined ? "" : String(l[col] || "").trim();
+    };
+
+    const porUrl = deduzirPorUrl(valor("url"));
+    const daLinha = normalizarChave(valor("origem"));
+
+    /* Sem coluna Origem e sem URL reconhecível não dá para afirmar que a linha
+       é indevida — na dúvida, fica. Remover lead bom é pior que manter um
+       ruim. */
+    if (!porUrl && !daLinha) continue;
+
+    if (!(ORIGENS[porUrl] || ORIGENS[daLinha])) {
+      remover.push({ linha: i + 2, celulas: l });
+    }
+  }
+
+  if (!remover.length) {
+    Logger.log("Nada a arquivar.");
+    return;
+  }
+
+  const arquivo = obterAba("REMOVIDOS");
+  if (arquivo.getLastRow() === 0) {
+    arquivo.getRange(1, 1, 1, largura)
+      .setValues([planilha.getRange(1, 1, 1, largura).getValues()[0]])
+      .setFontWeight("bold");
+  }
+
+  arquivo
+    .getRange(arquivo.getLastRow() + 1, 1, remover.length, largura)
+    .setValues(remover.map(function (r) { return r.celulas; }));
+
+  // De baixo para cima: apagar de cima muda o número das linhas de baixo.
+  remover
+    .map(function (r) { return r.linha; })
+    .sort(function (a, b) { return b - a; })
+    .forEach(function (n) { planilha.deleteRow(n); });
+
+  Logger.log("%s linhas movidas para REMOVIDOS.", remover.length);
 }
 
 /* ---------- utilitário ---------- */
