@@ -8,7 +8,7 @@
                       supletivo-filiado-cppem
      aba UNICIVE_Novo captura-unicive
      aba COLEGIO_Novo captura-colegio
-     aba IGNORADOS    operacao-alvorada, apostila, e qualquer origem
+     aba Venda Direta operacao-alvorada, apostila, e qualquer origem
                       desconhecida — nada é descartado
 
    Quem manda para onde é o ORIGENS + ABA_POR_ORIGEM, logo abaixo.
@@ -44,9 +44,14 @@ const ABA_POR_ORIGEM = {
   COLEGIO: "COLEGIO_Novo"
 };
 
-/* Rede de segurança: origem desconhecida ou bloqueada não é descartada — cai
-   aqui, para nada se perder por um ?aba= errado num site novo. */
-const ABA_IGNORADOS = "IGNORADOS";
+/* Destino de quem não está em ORIGENS: os projetos de venda direta (Operação
+   Alvorada, Apostila) e também qualquer origem desconhecida — nada é
+   descartado, para um ?aba= errado num site novo não sumir com o lead.
+
+   ATENÇÃO ao trocar este nome: a aba antiga não é renomeada sozinha. Renomeie
+   à mão na planilha ANTES de publicar, senão o script cria uma aba nova e os
+   leads que já estavam lá ficam órfãos numa aba que ninguém mais olha. */
+const ABA_IGNORADOS = "Venda Direta";
 
 const FUSO = "America/Recife";
 
@@ -82,8 +87,8 @@ const COLUNAS_MANUAIS = ["VENDEDOR"];
    propósito: assim nenhum site precisa trocar o ?aba= dele. O que diferencia
    um do outro na planilha é a Página URL.
 
-   Quem NÃO está aqui vai para a aba IGNORADOS. É o caso da Operação Alvorada
-   (venda direta, planilha própria via n8n) e da Apostila. */
+   Quem NÃO está aqui vai para a aba "Venda Direta" (ABA_IGNORADOS). É o caso
+   da Operação Alvorada e da Apostila. */
 const ORIGENS = {
   // → aba CPPEM
   CPPEM:               "CPPEM",   // captura-cppem  (contato.cppem.com.br)
@@ -145,8 +150,8 @@ const CAMPANHAS = [
 function doPost(e) {
   /* O editor do Apps Script deixa `doPost` pré-selecionado no menu de execução,
      por ser a primeira função do arquivo. Clicar em "Executar" sem trocar roda
-     ISTO, sem requisição nenhuma — e antes disso gravava uma linha vazia na aba
-     IGNORADOS, parecendo que "nada aconteceu". */
+     ISTO, sem requisição nenhuma — e antes disso gravava uma linha vazia na
+     aba de venda direta, parecendo que "nada aconteceu". */
   if (!e || !e.postData) {
     Logger.log(
       "doPost só roda por requisição do site. Para tarefas manuais, escolha no " +
