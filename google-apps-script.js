@@ -31,6 +31,12 @@ const ABA_IGNORADOS = "IGNORADOS";
 
 const FUSO = "America/Recife";
 
+/* Quais abas o `migrarAbasParaCPPEM` deve trazer. Lista VAZIA = todas.
+
+   Migrar uma de cada vez é mais seguro: você confere o resultado antes de ir
+   para a próxima. Edite esta linha, salve, e rode a função. */
+const ABAS_PARA_MIGRAR = ["MarkTeste"];
+
 /* Campos que o script sabe preencher. `titulos` são os nomes de cabeçalho
    aceitos (minúsculos, sem depender de acento na comparação). O primeiro é o
    usado ao criar uma aba do zero. */ 
@@ -135,9 +141,16 @@ function montarLead(dados, params) {
 
   /* A URL tem a última palavra sobre a origem: ela é o fato, o ?aba= é o que o
      site diz de si mesmo. É o que corrige um site novo copiado de outro que
-     esqueceu de trocar o parâmetro. */
+     esqueceu de trocar o parâmetro.
+
+     "Última palavra" precisa valer INCLUSIVE quando a URL aponta para um site
+     bloqueado. Um encadeamento `ORIGENS[porUrl] || ORIGENS[chave]` deixava o
+     ?aba= resgatar o que a URL tinha acabado de barrar — foi assim que um lead
+     de operacaoalvorada.cppem.com.br entrou rotulado como CPPEM. Se a URL é
+     reconhecida, ela decide sozinha; o ?aba= só vale quando a URL não diz
+     nada. */
   const porUrl = deduzirPorUrl(url);
-  const origem = ORIGENS[porUrl] || ORIGENS[chave] || "";
+  const origem = porUrl ? (ORIGENS[porUrl] || "") : (ORIGENS[chave] || "");
 
   return {
     permitida: origem !== "",
@@ -485,6 +498,8 @@ function migrarAbasParaCPPEM() {
     if (/^MIGRADA_/i.test(nome)) return;
     if (aba.getLastRow() < 2) return;
 
+    if (ABAS_PARA_MIGRAR.length && ABAS_PARA_MIGRAR.indexOf(nome) === -1) return;
+
     const mapaOrigem = mapaColunas(aba);
     if (mapaOrigem.nome === undefined && mapaOrigem.email === undefined) {
       Logger.log('Aba "%s" ignorada: não parece uma aba de leads.', nome);
@@ -507,7 +522,11 @@ function migrarAbasParaCPPEM() {
       const url = valor("url");
       const porUrl = deduzirPorUrl(url);
       const daLinha = normalizarChave(valor("origem"));
-      const origem = ORIGENS[porUrl] || ORIGENS[daLinha] || ORIGENS[chaveDaAba] || "";
+
+      // Mesma regra do montarLead: URL reconhecida decide sozinha.
+      const origem = porUrl
+        ? (ORIGENS[porUrl] || "")
+        : (ORIGENS[daLinha] || ORIGENS[chaveDaAba] || "");
 
       if (!origem) {
         puladas++;
