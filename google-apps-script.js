@@ -33,7 +33,7 @@ const FUSO = "America/Recife";
 
 /* Campos que o script sabe preencher. `titulos` são os nomes de cabeçalho
    aceitos (minúsculos, sem depender de acento na comparação). O primeiro é o
-   usado ao criar uma aba do zero. */
+   usado ao criar uma aba do zero. */ 
 const CAMPOS = [
   { chave: "data",         titulos: ["data e hora", "data"],                                  formato: "dd/MM/yyyy HH:mm:ss" },
   { chave: "origem",       titulos: ["origem"],                                               formato: "@" },
@@ -242,27 +242,55 @@ function normalizarTitulo(t) {
 
 /* ---------- ESCRITA ---------- */
 
+/* Escreve SÓ nas colunas conhecidas — nem sequer encosta nas outras.
+
+   A versão anterior montava a linha inteira e preenchia com "" o que não
+   conhecia. Numa linha nova isso é inofensivo... até o dia em que alguém puser
+   um ARRAYFORMULA numa coluna: o "" gravado na célula quebraria o preenchimento
+   automático dela. Escrevendo em blocos, VENDEDOR e qualquer coluna futura
+   ficam literalmente intocadas. */
 function escreverLead(planilha, valores) {
   const mapa = mapaColunas(planilha);
-  const largura = Math.max(planilha.getLastColumn(), 1);
   const linha = planilha.getLastRow() + 1;
 
-  /* Linha nova, largura inteira: as colunas que o script não conhece recebem
-     "" — o que não apaga nada, porque numa linha nova elas estão vazias de
-     qualquer jeito. VENDEDOR entra em branco, para o vendedor preencher. */
-  const celulas = new Array(largura).fill("");
-
-  CAMPOS.forEach(function (campo) {
-    const col = mapa[campo.chave];
-    if (col === undefined) return;
-
-    celulas[col] = valores[campo.chave];
+  blocosContiguos(mapa).forEach(function (bloco) {
+    const largura = bloco.length;
 
     // Formato ANTES do valor: depois já é tarde, o Sheets converteu na escrita.
-    planilha.getRange(linha, col + 1).setNumberFormat(campo.formato);
+    bloco.forEach(function (campo, i) {
+      planilha.getRange(linha, bloco.inicio + i + 1).setNumberFormat(campo.formato);
+    });
+
+    planilha
+      .getRange(linha, bloco.inicio + 1, 1, largura)
+      .setValues([bloco.map(function (campo) { return valores[campo.chave]; })]);
+  });
+}
+
+/* Agrupa as colunas conhecidas em faixas vizinhas, para escrever de uma vez em
+   vez de célula por célula. No layout atual da aba CPPEM (A..G seguidas, com
+   VENDEDOR em H) isso dá um bloco só. */
+function blocosContiguos(mapa) {
+  const usados = CAMPOS
+    .filter(function (c) { return mapa[c.chave] !== undefined; })
+    .sort(function (a, b) { return mapa[a.chave] - mapa[b.chave]; });
+
+  const blocos = [];
+
+  usados.forEach(function (campo) {
+    const col = mapa[campo.chave];
+    const ultimo = blocos[blocos.length - 1];
+
+    if (ultimo && mapa[ultimo[ultimo.length - 1].chave] === col - 1) {
+      ultimo.push(campo);
+    } else {
+      const novo = [campo];
+      novo.inicio = col;
+      blocos.push(novo);
+    }
   });
 
-  planilha.getRange(linha, 1, 1, largura).setValues([celulas]);
+  return blocos;
 }
 
 function obterAba(nome) {
@@ -446,7 +474,6 @@ function migrarAbasParaCPPEM() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const destino = obterAba(ABA_DESTINO);
   const mapaDestino = mapaColunas(destino);
-  const largura = Math.max(destino.getLastColumn(), 1);
 
   const novas = [];
   let puladas = 0;
@@ -487,8 +514,7 @@ function migrarAbasParaCPPEM() {
         continue;
       }
 
-      const celulas = new Array(largura).fill("");
-      const dados = {
+      novas.push({
         data: converterData(mapaOrigem.data === undefined ? "" : l[mapaOrigem.data]),
         origem: origem,
         nome: valor("nome"),
@@ -497,14 +523,8 @@ function migrarAbasParaCPPEM() {
         url: url,
         utm_source: valor("utm_source"),
         utm_campaign: valor("utm_campaign")
-      };
-
-      CAMPOS.forEach(function (campo) {
-        const col = mapaDestino[campo.chave];
-        if (col !== undefined) celulas[col] = dados[campo.chave];
       });
 
-      novas.push(celulas);
       migradasAqui++;
     }
 
@@ -520,16 +540,21 @@ function migrarAbasParaCPPEM() {
   }
 
   const inicio = destino.getLastRow() + 1;
-  const range = destino.getRange(inicio, 1, novas.length, largura);
 
-  CAMPOS.forEach(function (campo) {
-    const col = mapaDestino[campo.chave];
-    if (col !== undefined) {
-      destino.getRange(inicio, col + 1, novas.length, 1).setNumberFormat(campo.formato);
-    }
+  // Mesma regra do escreverLead: só as colunas conhecidas são tocadas.
+  blocosContiguos(mapaDestino).forEach(function (bloco) {
+    bloco.forEach(function (campo, i) {
+      destino
+        .getRange(inicio, bloco.inicio + i + 1, novas.length, 1)
+        .setNumberFormat(campo.formato);
+    });
+
+    destino
+      .getRange(inicio, bloco.inicio + 1, novas.length, bloco.length)
+      .setValues(novas.map(function (lead) {
+        return bloco.map(function (campo) { return lead[campo.chave]; });
+      }));
   });
-
-  range.setValues(novas);
 
   Logger.log("%s linhas migradas para %s. %s puladas (origem não permitida).",
              novas.length, ABA_DESTINO, puladas);
