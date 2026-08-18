@@ -13,7 +13,44 @@
    quando válido, e sem sair da página antes da PixelX enviar.
    ========================================================= */
 
-const SHEET_URL = "https://script.google.com/macros/s/AKfycbxdFplWVSfhTjvyIA7HIWb645xRjGNhBVhTdTf5UMjo0lSpW_A_jCuys0qB4uImKXPQ/exec?aba=MANYCHAT";
+/* Todos os projetos gravam na MESMA aba (LEADS) da planilha. O ?aba= não
+   escolhe mais a aba de destino: ele identifica QUEM enviou, e vira a coluna
+   "Origem" lá. */
+const SHEET_URL = "https://script.google.com/macros/s/AKfycbxdFplWVSfhTjvyIA7HIWb645xRjGNhBVhTdTf5UMjo0lSpW_A_jCuys0qB4uImKXPQ/exec?aba=PMPE";
+
+/* ---------- UTMs ----------
+   As UTMs só existem na URL do PRIMEIRO acesso. Se a pessoa recarrega, volta
+   pelo histórico, ou o link do anúncio cai numa página que redireciona, o
+   ?utm_source= já não está mais lá na hora do submit — e o lead chegava na
+   planilha sem origem nenhuma. Por isso gravamos assim que a página carrega e
+   lemos do storage no envio (first touch). O try/catch cobre navegador com
+   storage bloqueado (aba anônima, ITP), onde o comportamento volta a ser o
+   antigo em vez de quebrar o formulário. */
+const UTM_CAMPOS = ["utm_source", "utm_campaign"];
+
+(function guardarUTMs() {
+  UTM_CAMPOS.forEach((chave) => {
+    const valor = qs.get(chave);
+    if (!valor) return;
+
+    try {
+      sessionStorage.setItem(chave, valor);
+    } catch (e) {
+      /* storage indisponível: segue sem persistir */
+    }
+  });
+})();
+
+function utm(chave) {
+  const daUrl = new URLSearchParams(window.location.search).get(chave);
+  if (daUrl) return daUrl;
+
+  try {
+    return sessionStorage.getItem(chave) || "";
+  } catch (e) {
+    return "";
+  }
+}
 
 /* Link de retorno à caixa de mensagens do Instagram.
    Esta página é acessada por um link enviado no PV do usuário, ou seja, o fluxo
@@ -104,9 +141,10 @@ async function enviar(tClique) {
     nome: nomeInput?.value.trim() || "",
     email: emailInput?.value.trim() || "",
     telefone: telefoneInput?.value.trim() || "",
-    origem: "captura_manychat_pmpe",
-    pagina: window.location.href,
-    data_envio: new Date().toISOString()
+    origem: "PMPE",
+    pagina_url: window.location.href,
+    utm_source: utm("utm_source"),
+    utm_campaign: utm("utm_campaign")
   };
 
   try {
