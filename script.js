@@ -29,6 +29,8 @@ const SHEET_URL = "https://script.google.com/macros/s/AKfycbxdFplWVSfhTjvyIA7HIW
 const UTM_CAMPOS = ["utm_source", "utm_campaign"];
 
 (function guardarUTMs() {
+  const qs = new URLSearchParams(window.location.search);
+
   UTM_CAMPOS.forEach((chave) => {
     const valor = qs.get(chave);
     if (!valor) return;
