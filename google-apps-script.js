@@ -1,7 +1,16 @@
 /* =========================================================
    CPPEM — Backend único de captura (Google Apps Script)
 
-   Todos os projetos gravam na MESMA aba: CPPEM.
+   Uma implantação recebe os leads de todos os sites e roteia por origem:
+
+     aba CPPEM        captura-cppem, pmpe, captura-manychat-pmpe,
+                      mentoria-individual, presencial-em-casa
+     aba UNICIVE_Novo captura-unicive
+     aba COLEGIO_Novo captura-colegio
+     aba IGNORADOS    operacao-alvorada, apostila, e qualquer origem
+                      desconhecida — nada é descartado
+
+   Quem manda para onde é o ORIGENS + ABA_POR_ORIGEM, logo abaixo.
 
    A escrita é feita POR NOME DE COLUNA, lendo o cabeçalho da aba — nunca por
    posição fixa. É o que permite conviver com a coluna VENDEDOR, preenchida à
@@ -27,9 +36,11 @@ const ABA_DESTINO = "CPPEM";
 
 /* Origens que NÃO vão para a aba padrão. Quem não estiver aqui cai na
    ABA_DESTINO. A aba é criada no primeiro lead, já no padrão de colunas
-   daqui — a aba "UNICIVE" antiga tem outro layout e fica intocada. */
+   daqui — as abas "UNICIVE" e "COLEGIO" antigas têm outro layout e ficam
+   intocadas, por isso o sufixo _Novo. */
 const ABA_POR_ORIGEM = {
-  UNICIVE: "UNICIVE_Novo"
+  UNICIVE: "UNICIVE_Novo",
+  COLEGIO: "COLEGIO_Novo"
 };
 
 /* Rede de segurança: origem desconhecida ou bloqueada não é descartada — cai
@@ -62,39 +73,57 @@ const CAMPOS = [
    do time. Ficam depois das colunas de dados. */
 const COLUNAS_MANUAIS = ["VENDEDOR"];
 
-/* Quem pode gravar na aba principal. Chave = o que chega em ?aba= (ou
-   ?origem=); valor = o rótulo da coluna Origem, se a aba tiver essa coluna.
+/* Quem pode gravar. Chave = o que chega em ?aba= (ou ?origem=); valor = o
+   rótulo da coluna Origem, que também é o que decide a aba (ver
+   ABA_POR_ORIGEM).
 
-   Quem NÃO está aqui vai para a aba IGNORADOS — é assim que a Operação
-   Alvorada (venda direta, planilha própria via n8n) fica fora daqui. */
+   Os cinco projetos que compartilham a aba CPPEM usam o mesmo rótulo de
+   propósito: assim nenhum site precisa trocar o ?aba= dele. O que diferencia
+   um do outro na planilha é a Página URL.
+
+   Quem NÃO está aqui vai para a aba IGNORADOS. É o caso da Operação Alvorada
+   (venda direta, planilha própria via n8n) e da Apostila. */
 const ORIGENS = {
-  CPPEM:                "CPPEM",
-  CAPTURA:              "CPPEM",
-  CAPTURA_COMUNIDADE:   "CPPEM",
-  UNICIVE:              "UNICIVE",
-  UNICIVE_COMUNIDADE:   "UNICIVE",
-  PMPE:                 "PMPE",
-  PMPE_COMUNIDADE:      "PMPE",
-  MANYCHAT:             "PMPE",
-  MANYCHAT_ANTIGO:      "PMPE",
-  COLEGIO:              "COLEGIO",
-  APOSTILA:             "APOSTILA",
-  APOSTILA_PMPE:        "APOSTILA",
-  APOSTILA_COMUNIDADE:  "APOSTILA"
+  // → aba CPPEM
+  CPPEM:               "CPPEM",   // captura-cppem  (contato.cppem.com.br)
+  CAPTURA:             "CPPEM",   // apelido histórico do captura-cppem
+  CAPTURA_COMUNIDADE:  "CPPEM",   // exit popup do captura-cppem
+  PMPE:                "CPPEM",   // pmpe           (pmpe.cppem.com.br)
+  PMPE_COMUNIDADE:     "CPPEM",   // exit popup do pmpe
+  MANYCHAT:            "CPPEM",   // captura-manychat-pmpe
+  MANYCHAT_ANTIGO:     "CPPEM",   // aba antiga do manychat
+  INDIVIDUAL:          "CPPEM",   // mentoria-individual
+  CASA:                "CPPEM",   // presencial-em-casa
+
+  // → aba UNICIVE_Novo
+  UNICIVE:             "UNICIVE", // captura-unicive (contato.unicive.cppem.com.br)
+  UNICIVE_COMUNIDADE:  "UNICIVE", // exit popup do captura-unicive
+
+  // → aba COLEGIO_Novo
+  COLEGIO:             "COLEGIO"  // captura-colegio
 };
 
 /* Dedução pela URL, para quando o ?aba= vier errado ou faltar.
 
    Ancorado no host EXATO de propósito: o padrão antigo era /cppem/i, que casa
    com qualquer subdomínio — foi ele que fez os leads de apostila.cppem.com.br
-   e operacaoalvorada.cppem.com.br entrarem rotulados como CPPEM. */
+   e operacaoalvorada.cppem.com.br entrarem rotulados como CPPEM.
+
+   As duas últimas apontam para chaves que NÃO estão em ORIGENS: é assim que a
+   URL barra o lead mesmo quando o site manda um ?aba= permitido.
+
+   mentoria-individual e presencial-em-casa não estão aqui porque não achei o
+   domínio de produção deles nos repositórios — eles dependem só do ?aba=
+   (INDIVIDUAL e CASA). Se você me passar os domínios, eu acrescento. */
 const DOMINIOS = [
-  { teste: /\/\/contato\.unicive\.cppem\.com\.br/i, chave: "UNICIVE" },
-  { teste: /\/\/pmpe\.cppem\.com\.br/i,             chave: "PMPE" },
+  { teste: /\/\/contato\.unicive\.cppem\.com\.br/i,   chave: "UNICIVE" },
+  { teste: /\/\/pmpe\.cppem\.com\.br/i,               chave: "PMPE" },
   { teste: /\/\/colegio[a-z0-9.-]*\.cppem\.com\.br/i, chave: "COLEGIO" },
-  { teste: /\/\/apostila\.cppem\.com\.br/i,         chave: "APOSTILA" },
-  { teste: /\/\/contato\.cppem\.com\.br/i,          chave: "CPPEM" },
-  { teste: /\/\/operacaoalvorada\.cppem\.com\.br/i, chave: "OPERACAO" }
+  { teste: /\/\/contato\.cppem\.com\.br/i,            chave: "CPPEM" },
+
+  // Reconhecidos para poder BARRAR:
+  { teste: /\/\/apostila\.cppem\.com\.br/i,           chave: "APOSTILA" },
+  { teste: /\/\/operacaoalvorada\.cppem\.com\.br/i,   chave: "OPERACAO" }
 ];
 
 /* A campanha também identifica a origem, e às vezes é o único sinal: o mesmo
