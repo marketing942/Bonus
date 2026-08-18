@@ -8,8 +8,10 @@
                       supletivo-filiado-cppem
      aba UNICIVE_Novo captura-unicive
      aba COLEGIO_Novo captura-colegio
-     aba Venda Direta operacao-alvorada, apostila, e qualquer origem
-                      desconhecida — nada é descartado
+     aba Venda_Direta operacao-alvorada, apostila, site-cppem /qg e o
+                      modal de WhatsApp — venda direta, fora do funil
+     aba IGNORADOS    só o que o script não reconheceu. Deve viver VAZIA:
+                      linha aqui é sinal de configuração quebrada
 
    Quem manda para onde é o ORIGENS + ABA_POR_ORIGEM, logo abaixo.
 
@@ -40,18 +42,27 @@ const ABA_DESTINO = "CPPEM";
    daqui — as abas "UNICIVE" e "COLEGIO" antigas têm outro layout e ficam
    intocadas, por isso o sufixo _Novo. */
 const ABA_POR_ORIGEM = {
-  UNICIVE: "UNICIVE_Novo",
-  COLEGIO: "COLEGIO_Novo"
+  UNICIVE:   "UNICIVE_Novo",
+  COLEGIO:   "COLEGIO_Novo",
+
+  // Venda direta: leads que ficam fora do funil principal de propósito.
+  QG:        "Venda_Direta",   // site-cppem  /qg
+  WHATSAPP:  "Venda_Direta",   // site-cppem  modal de WhatsApp
+  OPERACAO:  "Venda_Direta",   // operacao-alvorada
+  APOSTILA:  "Venda_Direta"    // apostila
 };
 
-/* Destino de quem não está em ORIGENS: os projetos de venda direta (Operação
-   Alvorada, Apostila) e também qualquer origem desconhecida — nada é
-   descartado, para um ?aba= errado num site novo não sumir com o lead.
+/* Rede de segurança, e SÓ isso: aqui cai o que o script NÃO reconheceu.
 
-   ATENÇÃO ao trocar este nome: a aba antiga não é renomeada sozinha. Renomeie
-   à mão na planilha ANTES de publicar, senão o script cria uma aba nova e os
-   leads que já estavam lá ficam órfãos numa aba que ninguém mais olha. */
-const ABA_IGNORADOS = "Venda Direta";
+   Antes esta aba acumulava dois casos opostos — a venda direta, que é uma
+   DECISÃO, e o ?aba= errado, que é um ACIDENTE. Misturados, o acidente ficava
+   invisível: a aba sempre tinha conteúdo legítimo, então ninguém percebia que
+   havia site quebrado ali dentro. Foi exatamente assim que os leads do
+   Presencial em casa e do Supletivo ficaram caindo aqui sem ninguém notar.
+
+   Separadas, a regra fica legível: esta aba deve viver VAZIA. Linha aqui é
+   sinal de configuração quebrada, não de lead a trabalhar. */
+const ABA_DESCONHECIDOS = "IGNORADOS";
 
 const FUSO = "America/Recife";
 
@@ -87,8 +98,8 @@ const COLUNAS_MANUAIS = ["VENDEDOR"];
    propósito: assim nenhum site precisa trocar o ?aba= dele. O que diferencia
    um do outro na planilha é a Página URL.
 
-   Quem NÃO está aqui vai para a aba "Venda Direta" (ABA_IGNORADOS). É o caso
-   da Operação Alvorada e da Apostila. */
+   Quem NÃO está aqui vai para a aba IGNORADOS, que é rede de segurança e não
+   destino — ver ABA_DESCONHECIDOS. */
 const ORIGENS = {
   // → aba CPPEM
   CPPEM:               "CPPEM",   // captura-cppem  (contato.cppem.com.br)
@@ -101,13 +112,23 @@ const ORIGENS = {
   INDIVIDUAL:          "CPPEM",   // mentoria-individual     (individual.cppem.com.br)
   CASA:                "CPPEM",   // presencial-em-casa      (presencialemcasa.cppem.com.br)
   SUPLETIVO:           "CPPEM",   // supletivo-filiado-cppem
+  TURMAS:              "CPPEM",   // site-cppem              (cppem.com.br/turmas)
 
   // → aba UNICIVE_Novo
   UNICIVE:             "UNICIVE", // captura-unicive (contato.unicive.cppem.com.br)
   UNICIVE_COMUNIDADE:  "UNICIVE", // exit popup do captura-unicive
 
   // → aba COLEGIO_Novo
-  COLEGIO:             "COLEGIO"  // captura-colegio
+  COLEGIO:             "COLEGIO", // captura-colegio
+
+  // → aba Venda_Direta
+  QG:                  "QG",        // site-cppem /qg
+  WHATSAPP:            "WHATSAPP",  // site-cppem, modal de WhatsApp
+  OPERACAO:            "OPERACAO",  // operacao-alvorada
+  OPERACAO_COMUNIDADE: "OPERACAO",  // exit popup da alvorada
+  APOSTILA:            "APOSTILA",  // apostila
+  APOSTILA_PMPE:       "APOSTILA",
+  APOSTILA_COMUNIDADE: "APOSTILA"
 };
 
 /* Dedução pela URL, para quando o ?aba= vier errado ou faltar.
@@ -116,9 +137,14 @@ const ORIGENS = {
    com qualquer subdomínio — foi ele que fez os leads de apostila.cppem.com.br
    e operacaoalvorada.cppem.com.br entrarem rotulados como CPPEM.
 
-   As duas últimas apontam para chaves que NÃO estão em ORIGENS: é assim que a
-   URL barra o lead mesmo quando o site manda um ?aba= permitido. */
+   As duas primeiras olham o CAMINHO, não só o host: /qg e /turmas dividem o
+   mesmo cppem.com.br e vão para abas diferentes, então o host sozinho não
+   resolve. Por isso vêm antes — a primeira regra que casar decide, e
+   `cppem.com.br` casaria com as duas. */
 const DOMINIOS = [
+  { teste: /\/\/(www\.)?cppem\.com\.br\/qg/i,           chave: "QG" },
+  { teste: /\/\/(www\.)?cppem\.com\.br\/turmas/i,       chave: "TURMAS" },
+
   { teste: /\/\/contato\.unicive\.cppem\.com\.br/i,     chave: "UNICIVE" },
   { teste: /\/\/pmpe\.cppem\.com\.br/i,                 chave: "PMPE" },
   { teste: /\/\/colegio[a-z0-9.-]*\.cppem\.com\.br/i,   chave: "COLEGIO" },
@@ -132,7 +158,7 @@ const DOMINIOS = [
   { teste: /\/\/supletivo[a-z0-9.-]*\.cppem\.com\.br/i, chave: "SUPLETIVO" },
   { teste: /\/\/cppem-supletivo-filiado\.vercel\.app/i, chave: "SUPLETIVO" },
 
-  // Reconhecidos para poder BARRAR:
+  // Venda direta:
   { teste: /\/\/apostila\.cppem\.com\.br/i,             chave: "APOSTILA" },
   { teste: /\/\/operacaoalvorada\.cppem\.com\.br/i,     chave: "OPERACAO" }
 ];
@@ -145,13 +171,25 @@ const CAMPANHAS = [
   { teste: /unicive/i, chave: "UNICIVE" }
 ];
 
+/* Origens em que o ?aba= é MAIS confiável que a URL, e por isso decide sozinho.
+
+   Vale para o site-cppem: lá o parâmetro é montado no servidor a partir do
+   campo `source` do formulário, então não tem como vir errado por
+   copiar/colar — que é justamente o risco que fez a URL ter precedência para
+   todo o resto.
+
+   E aqui a URL seria ativamente ERRADA: /qg, /turmas e o modal de WhatsApp
+   dividem o mesmo cppem.com.br, e o modal abre em qualquer página. Um lead do
+   modal aberto em /turmas seria lido como lead de /turmas se a URL mandasse. */
+const ORIGENS_CONFIAVEIS = ["QG", "TURMAS", "WHATSAPP"];
+
 /* ---------- ENTRADA ---------- */
 
 function doPost(e) {
   /* O editor do Apps Script deixa `doPost` pré-selecionado no menu de execução,
      por ser a primeira função do arquivo. Clicar em "Executar" sem trocar roda
-     ISTO, sem requisição nenhuma — e antes disso gravava uma linha vazia na
-     aba de venda direta, parecendo que "nada aconteceu". */
+     ISTO, sem requisição nenhuma — e antes disso gravava uma linha vazia numa
+     aba, parecendo que "nada aconteceu". */
   if (!e || !e.postData) {
     Logger.log(
       "doPost só roda por requisição do site. Para tarefas manuais, escolha no " +
@@ -212,7 +250,7 @@ function montarLead(dados, params) {
 
   return {
     permitida: origem !== "",
-    aba: origem ? abaDaOrigem(origem) : ABA_IGNORADOS,
+    aba: origem ? abaDaOrigem(origem) : ABA_DESCONHECIDOS,
     valores: {
       data: new Date(),
       origem: origem || chaveFinal || "DESCONHECIDA",
@@ -226,9 +264,11 @@ function montarLead(dados, params) {
   };
 }
 
-/* Decide de quem é o lead a partir de três sinais, nesta ordem:
+/* Decide de quem é o lead, nesta ordem:
 
-   1. URL de site BLOQUEADO manda em tudo. Sem isso, um `||` deixava o ?aba=
+   0. Origem declarada por um servidor de confiança (site-cppem), que não tem
+      como vir errada e cuja URL seria ambígua — ver ORIGENS_CONFIAVEIS.
+   1. URL de site BLOQUEADO manda no resto. Sem isso, um `||` deixava o ?aba=
       resgatar o que a URL tinha acabado de barrar — foi assim que um lead de
       operacaoalvorada.cppem.com.br entrou rotulado como CPPEM.
    2. A campanha, que identifica sozinha ("bau_unicive" é lead da UniCV mesmo
@@ -237,6 +277,9 @@ function montarLead(dados, params) {
    4. O ?aba=, que é só o que o site diz de si mesmo — o sinal mais fraco,
       porque sobrevive a copiar/colar de um projeto para outro. */
 function resolverOrigem(chaveDoSite, url, campanha) {
+  // 0. Origem declarada pelo servidor (site-cppem): mais confiável que a URL.
+  if (ORIGENS_CONFIAVEIS.indexOf(chaveDoSite) >= 0) return chaveDoSite;
+
   const porUrl = deduzirPorUrl(url);
   if (porUrl && !ORIGENS[porUrl]) return porUrl;
 
@@ -644,7 +687,7 @@ function migrarAbasParaCPPEM() {
     /* Cada aba diz por que ficou de fora. Sem isso, "não aconteceu nada" não
        tem como ser diagnosticado sem adivinhação. */
     // Aba de destino nunca é fonte — senão migraria para dentro de si mesma.
-    if (abasDeDestino().indexOf(nome) >= 0 || nome === ABA_IGNORADOS) {
+    if (abasDeDestino().indexOf(nome) >= 0 || nome === ABA_DESCONHECIDOS) {
       Logger.log('  "%s": pulada (é aba de destino ou a de ignorados).', nome);
       return;
     }
