@@ -12,39 +12,33 @@ j=d.createElement(s),dl=l!='dataLayer'?'?l='+l:'';j.async=true;j.src=
 
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>CPPEM Concursos — Preparação para Concursos Policiais (PMPE)</title>
-  <meta name="description" content="Entre para a lista do CPPEM e receba orientação para concursos policiais. PM, PC, PRF, PF e Penal." />
-  <meta property="og:title" content="CPPEM Concursos — A sua preparação para vestir a farda começa com direção." />
-  <meta property="og:image" content="/bg-collage.jpg" />
+  <title>CPPEM Concursos — Receba o seu bônus</title>
+  <meta name="description" content="Cadastre-se e receba o seu bônus exclusivo do CPPEM Concursos." />
+  <meta property="og:title" content="CPPEM Concursos — Receba o seu bônus" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Montserrat:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Oxanium:wght@400;500;600;700;800&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
-  <link rel="icon" type="image/png" href="public/logo-cppem.png" />
+  <link rel="icon" type="image/webp" href="public/logo-cppem.webp" />
+
 </head>
 <body>
 
-  <!-- Fundo mesclado (colagem de todas as imagens) -->
-  <div class="bg" aria-hidden="true"></div>
   <div class="bg-scrim" aria-hidden="true"></div>
 
-  <main class="page">
+  <main class="page hero">
+    <img class="logo" src="public/logo-cppem.png" width="700" height="239" alt="CPPEM Concursos Públicos" />
 
-    <!-- Logo CPPEM -->
-    <img class="logo" src="public/logo-cppem.png" alt="CPPEM Concursos Públicos" />
-
-    <!-- 1. HEADLINE -->
     <h1 class="headline">
-      A sua preparação para <span class="hl">vestir a farda</span> começa com direção.
+      Receba o seu <span class="hl">bônus</span> exclusivo.
     </h1>
     <p class="sub">
-      Preencha e caia pra dentro da turma que mais aprova concurseiros de carreiras policiais no Brasil!
+      Preencha os dados abaixo para liberar o seu acesso.
     </p>
 
-    <!-- 2. FORMULÁRIO  +  3. BOTÃO -->
-    <!-- Estrutura espelhada do captura-cppem, que funciona.
-         Os identificadores abaixo NÃO são decorativos — são o que o painel da
-         PixelX usa para reconhecer o formulário e disparar a conversão:
+    <!-- Os identificadores abaixo NÃO são decorativos — são o que o painel da
+         PixelX usa para reconhecer o formulário e disparar a conversão
+         (ver TRACKING.md do Contato-CPPEM, seção 6):
            · name="lead_form" e id="IPEyzyfmJhKQEYIXAlZH" no <form>
            · id/name lead_name/name, lead_email/email, lead_phone/phone
            · classe pxa_mask_phone no telefone
@@ -64,63 +58,21 @@ j=d.createElement(s),dl=l!='dataLayer'?'?l='+l:'';j.async=true;j.src=
         <span class="error" data-error-for="phone"></span>
       </div>
 
-      <button type="submit" id="lead_submit" class="cta">QUERO RECEBER O MATERIAL</button>
+      <button type="submit" id="lead_submit" class="cta">QUERO MEU BÔNUS</button>
       <p class="note">Cadastro gratuito. Seus dados estão seguros.</p>
       <p class="success" id="form-success" role="status" hidden>
         ✅ Cadastro recebido!<br />
         Parabéns! Já te enviei o material no instagram.
       </p>
     </form>
-
-    <!-- 4. PROVAS SOCIAIS — slots para fotos dos alunos com o Prof. Everton Mota -->
-    <section class="social">
-      <span class="social__eyebrow">Nossos alunos</span>
-
-      <!-- Carrossel infinito de fotos dos alunos (loop contínuo via CSS).
-           A 2ª sequência é uma cópia oculta de leitores de tela que garante
-           o loop perfeito. Pausa ao passar o mouse e respeita reduced-motion. -->
-      <div class="carousel" aria-label="Fotos de alunos com o Prof. Everton Mota">
-        <ul class="carousel__track">
-          <li class="carousel__item"><img src="public/foto1.webp"  width="320" height="400" loading="eager" fetchpriority="low" decoding="async" draggable="false" alt="Aluno com o Prof. Everton Mota" /></li>
-          <li class="carousel__item"><img src="public/foto2.webp"  width="320" height="400" loading="eager" fetchpriority="low" decoding="async" draggable="false" alt="Aluno com o Prof. Everton Mota" /></li>
-          <li class="carousel__item"><img src="public/foto3.webp"  width="320" height="400" loading="eager" fetchpriority="low" decoding="async" draggable="false" alt="Aluno com o Prof. Everton Mota" /></li>
-          <li class="carousel__item"><img src="public/foto4.webp"  width="320" height="400" loading="eager" fetchpriority="low" decoding="async" draggable="false" alt="Aluno com o Prof. Everton Mota" /></li>
-          <li class="carousel__item"><img src="public/foto5.webp"  width="320" height="400" loading="eager" fetchpriority="low" decoding="async" draggable="false" alt="Aluno com o Prof. Everton Mota" /></li>
-          <li class="carousel__item"><img src="public/foto6.webp"  width="320" height="400" loading="eager" fetchpriority="low" decoding="async" draggable="false" alt="Aluno com o Prof. Everton Mota" /></li>
-          <li class="carousel__item"><img src="public/foto7.webp"  width="320" height="400" loading="eager" fetchpriority="low" decoding="async" draggable="false" alt="Aluno com o Prof. Everton Mota" /></li>
-          <li class="carousel__item"><img src="public/foto8.webp"  width="320" height="400" loading="eager" fetchpriority="low" decoding="async" draggable="false" alt="Aluno com o Prof. Everton Mota" /></li>
-          <li class="carousel__item"><img src="public/foto9.webp"  width="320" height="400" loading="eager" fetchpriority="low" decoding="async" draggable="false" alt="Aluno com o Prof. Everton Mota" /></li>
-          <li class="carousel__item"><img src="public/foto10.webp" width="320" height="400" loading="eager" fetchpriority="low" decoding="async" draggable="false" alt="Aluno com o Prof. Everton Mota" /></li>
-          <li class="carousel__item"><img src="public/foto11.webp" width="320" height="400" loading="eager" fetchpriority="low" decoding="async" draggable="false" alt="Aluno com o Prof. Everton Mota" /></li>
-          <li class="carousel__item"><img src="public/foto12.webp" width="320" height="400" loading="eager" fetchpriority="low" decoding="async" draggable="false" alt="Aluno com o Prof. Everton Mota" /></li>
-          <li class="carousel__item"><img src="public/foto13.webp" width="320" height="400" loading="eager" fetchpriority="low" decoding="async" draggable="false" alt="Aluno com o Prof. Everton Mota" /></li>
-          <li class="carousel__item"><img src="public/foto14.webp" width="320" height="400" loading="eager" fetchpriority="low" decoding="async" draggable="false" alt="Aluno com o Prof. Everton Mota" /></li>
-          <!-- cópia para o loop infinito -->
-          <li class="carousel__item" aria-hidden="true"><img src="public/foto1.webp"  width="320" height="400" loading="eager" fetchpriority="low" decoding="async" draggable="false" alt="" /></li>
-          <li class="carousel__item" aria-hidden="true"><img src="public/foto2.webp"  width="320" height="400" loading="eager" fetchpriority="low" decoding="async" draggable="false" alt="" /></li>
-          <li class="carousel__item" aria-hidden="true"><img src="public/foto3.webp"  width="320" height="400" loading="eager" fetchpriority="low" decoding="async" draggable="false" alt="" /></li>
-          <li class="carousel__item" aria-hidden="true"><img src="public/foto4.webp"  width="320" height="400" loading="eager" fetchpriority="low" decoding="async" draggable="false" alt="" /></li>
-          <li class="carousel__item" aria-hidden="true"><img src="public/foto5.webp"  width="320" height="400" loading="eager" fetchpriority="low" decoding="async" draggable="false" alt="" /></li>
-          <li class="carousel__item" aria-hidden="true"><img src="public/foto6.webp"  width="320" height="400" loading="eager" fetchpriority="low" decoding="async" draggable="false" alt="" /></li>
-          <li class="carousel__item" aria-hidden="true"><img src="public/foto7.webp"  width="320" height="400" loading="eager" fetchpriority="low" decoding="async" draggable="false" alt="" /></li>
-          <li class="carousel__item" aria-hidden="true"><img src="public/foto8.webp"  width="320" height="400" loading="eager" fetchpriority="low" decoding="async" draggable="false" alt="" /></li>
-          <li class="carousel__item" aria-hidden="true"><img src="public/foto9.webp"  width="320" height="400" loading="eager" fetchpriority="low" decoding="async" draggable="false" alt="" /></li>
-          <li class="carousel__item" aria-hidden="true"><img src="public/foto10.webp" width="320" height="400" loading="eager" fetchpriority="low" decoding="async" draggable="false" alt="" /></li>
-          <li class="carousel__item" aria-hidden="true"><img src="public/foto11.webp" width="320" height="400" loading="eager" fetchpriority="low" decoding="async" draggable="false" alt="" /></li>
-          <li class="carousel__item" aria-hidden="true"><img src="public/foto12.webp" width="320" height="400" loading="eager" fetchpriority="low" decoding="async" draggable="false" alt="" /></li>
-          <li class="carousel__item" aria-hidden="true"><img src="public/foto13.webp" width="320" height="400" loading="eager" fetchpriority="low" decoding="async" draggable="false" alt="" /></li>
-          <li class="carousel__item" aria-hidden="true"><img src="public/foto14.webp" width="320" height="400" loading="eager" fetchpriority="low" decoding="async" draggable="false" alt="" /></li>
-        </ul>
-      </div>
-    </section>
-
   </main>
+
   <script src="script.js"></script>
 
-<!-- Google Tag Manager (noscript) -->
-<noscript><iframe src="https://sgtm.cppem.com.br/ns.html?id=GTM-PJ379FLQ"
-height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
-<!-- End Google Tag Manager (noscript) -->
-  
+  <!-- Google Tag Manager (noscript) -->
+  <noscript><iframe src="https://sgtm.cppem.com.br/ns.html?id=GTM-PJ379FLQ"
+  height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+  <!-- End Google Tag Manager (noscript) -->
+
 </body>
 </html>

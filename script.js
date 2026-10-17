@@ -185,7 +185,7 @@ async function enviar(tClique) {
        dispararia a regra de conversão de novo. */
     if (submitBtn) {
       submitBtn.disabled = false;
-      submitBtn.textContent = "QUERO RECEBER O MATERIAL";
+      submitBtn.textContent = "QUERO MEU BÔNUS";
     }
   }
 }
